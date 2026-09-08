@@ -1255,6 +1255,8 @@
       pill.appendChild(editBtn);
 
       pill.addEventListener("click", ()=>{
+        if(id === selectedMember) return;
+        if(!confirmDiscardIfDirty()) return;
         selectedMember = id;
         localStorage.setItem("worklog_member", id);
         rebuildRequestViews();
@@ -1297,7 +1299,13 @@
   entryDateInput.value = entryDate;
   entryDateInput.max = todayStr;
   entryDateInput.addEventListener("change", ()=>{
-    entryDate = entryDateInput.value || todayStr;
+    const nextDate = entryDateInput.value || todayStr;
+    if(nextDate === entryDate) return;
+    if(!confirmDiscardIfDirty()){
+      entryDateInput.value = entryDate;
+      return;
+    }
+    entryDate = nextDate;
     loadOwnEntry();
   });
 
@@ -1452,6 +1460,7 @@
     fPlan.value = "";
     fRequest.value = "";
     fRequestTo.value = "";
+    markFormClean();
   }
 
   function fillForm(data){
@@ -1462,7 +1471,48 @@
     fPlan.value = data.tomorrowPlan || "";
     fRequest.value = data.request || "";
     fRequestTo.value = (data.requestTo && data.requestTo !== selectedMember) ? data.requestTo : "";
+    markFormClean();
   }
+
+  // ---------- unsaved-changes guard ----------
+  // Switching member/date/history without saving used to silently discard
+  // whatever was typed in the form. We snapshot the form right after every
+  // load (clearForm/fillForm) and compare against that baseline before any
+  // navigation that would replace the form's contents.
+  function currentFormSnapshot(){
+    const cleanedTasks = taskRows
+      .map(t=>({
+        text: (t.text || "").trim(),
+        status: t.status || "progress",
+        holdReason: (t.holdReason || "").trim(),
+        holdWho: t.holdWho || "",
+      }))
+      .filter(t=>t.text.length > 0);
+    return JSON.stringify({
+      tasks: cleanedTasks,
+      issues: fIssues.value.trim(),
+      plan: fPlan.value.trim(),
+      request: fRequest.value.trim(),
+      requestTo: fRequestTo.value || "",
+    });
+  }
+  let lastLoadedSnapshot = currentFormSnapshot();
+  function markFormClean(){
+    lastLoadedSnapshot = currentFormSnapshot();
+  }
+  function hasUnsavedChanges(){
+    return currentFormSnapshot() !== lastLoadedSnapshot;
+  }
+  function confirmDiscardIfDirty(){
+    if(!hasUnsavedChanges()) return true;
+    return confirm("저장하지 않은 내용이 있습니다. 지금 이동하면 작성 중인 내용이 사라집니다. 그래도 이동할까요?");
+  }
+  // Also warn on closing/refreshing/navigating away from the page itself.
+  window.addEventListener("beforeunload", (e)=>{
+    if(!hasUnsavedChanges()) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 
   // ---------- inbox: requests addressed to me ----------
   const inboxListEl = document.getElementById("inboxList");
@@ -1607,6 +1657,7 @@
       saveStatus.classList.add("ok");
       if(selectedMember === memberAtSave && entryDate === dateAtSave){
         entryMeta.textContent = "마지막 저장 " + new Date(result.entry.updatedAt).toLocaleString("ko-KR");
+        markFormClean();
       }
 
       renderPills();
@@ -1652,6 +1703,8 @@
       row.appendChild(barWrap.firstChild);
       row.appendChild(w);
       row.addEventListener("click", ()=>{
+        if(data.date === entryDate) return;
+        if(!confirmDiscardIfDirty()) return;
         entryDate = data.date;
         entryDateInput.value = entryDate;
         loadOwnEntry();
