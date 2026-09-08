@@ -980,7 +980,7 @@
       </div>
       <span class="notice-author" id="noticeAuthor"></span>
     </div>
-    <div class="notice-body">
+    <div class="notice-body" id="noticeBody">
       <p class="notice-empty" id="noticeEmpty">아직 이번 주 공지가 없습니다.</p>
       <p class="notice-text" id="noticeText" hidden></p>
     </div>
@@ -1983,6 +1983,7 @@
   const noticeAuthorEl = document.getElementById("noticeAuthor");
   const noticeEmptyEl = document.getElementById("noticeEmpty");
   const noticeTextEl = document.getElementById("noticeText");
+  const noticeBodyEl = document.getElementById("noticeBody");
   const noticeEditEl = document.getElementById("noticeEdit");
   const noticeInputEl = document.getElementById("noticeInput");
   const noticeToggleBtn = document.getElementById("noticeToggleBtn");
@@ -1995,12 +1996,14 @@
   function openNoticeEdit(){
     noticeEditingOpen = true;
     noticeInputEl.value = latestNoticeText;
+    noticeBodyEl.hidden = true;
     noticeEditEl.hidden = false;
     noticeToggleBtn.hidden = true;
     noticeInputEl.focus();
   }
   function closeNoticeEdit(){
     noticeEditingOpen = false;
+    noticeBodyEl.hidden = false;
     noticeEditEl.hidden = true;
     noticeToggleBtn.hidden = !canEditNotice();
   }
