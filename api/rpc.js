@@ -128,24 +128,6 @@ async function api_renameMember(id, name) {
   return { id, name };
 }
 
-// TEMPORARY one-off cleanup utility for removing accidentally-created test
-// rows (e.g. verification data saved under a clearly-fake date while testing
-// a fix). Scoped to an exact date match only. Remove this function and its
-// HANDLERS entry once cleanup is done.
-async function api_adminPurgeDate(date) {
-  const entries = await getJson(KEYS.ENTRIES, []);
-  const requests = await getJson(KEYS.REQUESTS, []);
-  const keptEntries = entries.filter((e) => e.date !== date);
-  const keptRequests = requests.filter((r) => r.date !== date);
-  const removed = {
-    entries: entries.length - keptEntries.length,
-    requests: requests.length - keptRequests.length,
-  };
-  await setJson(KEYS.ENTRIES, keptEntries);
-  await setJson(KEYS.REQUESTS, keptRequests);
-  return removed;
-}
-
 async function api_markRequestDone(requestId) {
   const requests = await getJson(KEYS.REQUESTS, []);
   const row = requests.find((r) => r.id === requestId);
@@ -191,7 +173,6 @@ const HANDLERS = {
   api_markRequestDone,
   api_saveNotice,
   api_saveSchedule,
-  api_adminPurgeDate, // TEMPORARY — remove after test-data cleanup
 };
 
 module.exports = async (req, res) => {
