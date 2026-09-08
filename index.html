@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Secondary Part 업무일지</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --paper:#EDF1EC;
@@ -778,6 +779,57 @@
   .week-col .bar .seg.hold{ background:var(--st-hold); }
   .week-col .lbl{ font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
 
+  /* ---------- weekly review (Monday meeting grid) ---------- */
+  .review-table-wrap{
+    overflow-x:auto;
+    border:1px solid var(--line);
+    border-radius:12px;
+  }
+  .review-table{
+    border-collapse:collapse;
+    width:100%;
+    min-width:680px;
+    font-size:13px;
+  }
+  .review-table th, .review-table td{
+    border:1px solid var(--line);
+    padding:10px;
+    vertical-align:top;
+    text-align:left;
+  }
+  .review-table thead th{
+    background:var(--surface-2);
+    color:var(--muted);
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+    position:sticky;
+    top:0;
+  }
+  .review-table tbody th{
+    background:var(--surface-2);
+    color:var(--ink);
+    font-weight:700;
+    white-space:nowrap;
+    position:sticky;
+    left:0;
+  }
+  .review-table td{ width:19%; min-width:150px; }
+  .review-cell-empty{ color:var(--faint); font-size:12.5px; }
+  .review-cell ul{ list-style:none; margin:0 0 6px; padding:0; display:flex; flex-direction:column; gap:4px; }
+  .review-cell li{ display:flex; align-items:flex-start; gap:6px; line-height:1.4; }
+  .review-cell .dot{ width:7px; height:7px; border-radius:50%; margin-top:5px; flex:none; }
+  .review-cell .dot.done{ background:var(--st-done); }
+  .review-cell .dot.progress{ background:var(--st-progress); }
+  .review-cell .dot.hold{ background:var(--st-hold); }
+  .review-cell .txt{ flex:1; min-width:0; word-break:break-word; color:var(--ink); }
+  .review-cell .issue-note{ font-size:11.5px; color:var(--muted); margin-top:4px; border-top:1px dashed var(--line); padding-top:4px; }
+  .review-actions{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:14px;
+  }
+
   /* ---------- monthly calendar ---------- */
   .calendar-nav{
     display:flex;
@@ -1205,6 +1257,25 @@
       <p class="footnote">날짜를 클릭하면 위 팀 취합 대시보드가 그 날짜로 이동합니다.</p>
     </section>
 
+    <!-- weekly review for the Monday team meeting -->
+    <section class="panel" id="weeklyReviewPanel">
+      <div class="panel-head">
+        <h2>주간 리뷰</h2>
+        <div class="team-date-picker">
+          <button class="nav-btn" id="reviewWeekPrev" aria-label="이전 주">‹</button>
+          <span class="cal-month-label" id="reviewWeekLabel"></span>
+          <button class="nav-btn" id="reviewWeekNext" aria-label="다음 주">›</button>
+        </div>
+      </div>
+      <div class="review-table-wrap">
+        <table class="review-table" id="reviewTable"></table>
+      </div>
+      <div class="review-actions">
+        <button class="btn-ghost" id="reviewExportBtn" type="button">엑셀로 내보내기</button>
+      </div>
+      <p class="footnote">월요일 회의 때 지난 한 주 4명의 업무를 한눈에 보기 위한 화면입니다. 기본값은 지난 주이며, 화살표로 다른 주도 볼 수 있습니다.</p>
+    </section>
+
   </div>
 </div>
 
@@ -1277,6 +1348,11 @@
   const currentWeekKey = getMondayStr(todayStr);
   let noticeEditingOpen = false;
   let latestNoticeText = "";
+
+  // Weekly review (Monday meeting grid) defaults to LAST week — the week
+  // that just ended — since that's what a Monday retrospective needs to
+  // see. Prev/next buttons let people browse any other week too.
+  let reviewWeekKey = addDays(currentWeekKey, -7);
 
   function entryFor(memberId, dateStr){
     for(let i=0;i<allEntriesCache.length;i++){
@@ -1808,6 +1884,7 @@
       renderSentRequests();
       renderTeam();
       renderWeekReport();
+      renderWeeklyReview();
       runSearch(teamSearchInput.value);
       renderCalendar();
       loadHistory();
@@ -1976,6 +2053,105 @@
       </div>`;
     }).join("");
   }
+
+  // ---------- weekly review (Monday meeting grid) ----------
+  const reviewTableEl = document.getElementById("reviewTable");
+  const reviewWeekLabelEl = document.getElementById("reviewWeekLabel");
+
+  function requestsForEntry(memberId, dateStr){
+    const entryId = memberId + "__" + dateStr;
+    return requestsCache.filter(r=>r.entryId === entryId);
+  }
+
+  function reviewWeekDays(){
+    return [0, 1, 2, 3, 4].map(i=>addDays(reviewWeekKey, i));
+  }
+
+  function renderWeeklyReview(){
+    const days = reviewWeekDays();
+    reviewWeekLabelEl.textContent = formatWeekRange(reviewWeekKey);
+
+    const headHtml = `<thead><tr>
+      <th>담당자</th>
+      ${days.map(d=>{
+        const dObj = fromDateStr(d);
+        return `<th>${WEEKDAY_KR[dObj.getDay()]} ${dObj.getMonth() + 1}/${dObj.getDate()}</th>`;
+      }).join("")}
+    </tr></thead>`;
+
+    const bodyHtml = `<tbody>${MEMBER_IDS.map(id=>{
+      const cells = days.map(d=>{
+        const entry = entryFor(id, d);
+        const tasks = entry ? (entry.tasks || []) : [];
+        if(tasks.length === 0 && !(entry && entry.issues)){
+          return `<td><span class="review-cell-empty">${entry ? "등록된 업무 없음" : "작성 없음"}</span></td>`;
+        }
+        const itemsHtml = tasks.map(t=>{
+          const holdNote = (t.status === "hold" && t.holdReason)
+            ? ` <span class="hold-note">— ${escapeHtml(t.holdReason)}</span>`
+            : "";
+          return `<li><span class="dot ${t.status || 'progress'}"></span><span class="txt">${escapeHtml(t.text || "")}${holdNote}</span></li>`;
+        }).join("");
+        const issueHtml = entry && entry.issues
+          ? `<div class="issue-note">${escapeHtml(entry.issues)}</div>`
+          : "";
+        return `<td><div class="review-cell">${tasks.length ? `<ul>${itemsHtml}</ul>` : ""}${issueHtml}</div></td>`;
+      }).join("");
+      return `<tr><th>${escapeHtml(memberNames[id] || id)}</th>${cells}</tr>`;
+    }).join("")}</tbody>`;
+
+    reviewTableEl.innerHTML = headHtml + bodyHtml;
+  }
+
+  document.getElementById("reviewWeekPrev").addEventListener("click", ()=>{
+    reviewWeekKey = addDays(reviewWeekKey, -7);
+    renderWeeklyReview();
+  });
+  document.getElementById("reviewWeekNext").addEventListener("click", ()=>{
+    reviewWeekKey = addDays(reviewWeekKey, 7);
+    renderWeeklyReview();
+  });
+
+  document.getElementById("reviewExportBtn").addEventListener("click", ()=>{
+    const days = reviewWeekDays();
+    const rows = [["날짜", "요일", "담당자", "업무내용", "이슈사항", "협조요청", "마지막 저장"]];
+    days.forEach(d=>{
+      const dObj = fromDateStr(d);
+      MEMBER_IDS.forEach(id=>{
+        const entry = entryFor(id, d);
+        const tasks = entry ? (entry.tasks || []) : [];
+        const taskText = tasks.map(t=>{
+          const label = STATUS_LABEL[t.status || "progress"] || t.status;
+          const holdPart = (t.status === "hold" && t.holdReason) ? (" - 사유: " + t.holdReason) : "";
+          return `[${label}] ${t.text || ""}${holdPart}`;
+        }).join("\n");
+        const reqs = requestsForEntry(id, d);
+        const reqText = reqs.map(r=>{
+          const toName = memberNames[r.to] || r.to;
+          return `${toName}님께: ${r.text}${r.done ? " (완료됨)" : " (대기중)"}`;
+        }).join("\n");
+        rows.push([
+          d,
+          WEEKDAY_KR[dObj.getDay()],
+          memberNames[id] || id,
+          taskText || (entry ? "" : "작성 없음"),
+          entry ? (entry.issues || "") : "",
+          reqText,
+          entry && entry.updatedAt ? new Date(entry.updatedAt).toLocaleString("ko-KR") : "",
+        ]);
+      });
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 11 }, { wch: 5 }, { wch: 10 }, { wch: 46 }, { wch: 28 }, { wch: 28 }, { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    const sheetName = (formatWeekRange(reviewWeekKey) || "주간업무").slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const fileLabel = days[0] + "_~_" + days[days.length - 1];
+    XLSX.writeFile(wb, `secondarypart_주간업무_${fileLabel}.xlsx`);
+  });
 
   function runSearch(query){
     const q = (query || "").trim().toLowerCase();
@@ -2283,6 +2459,7 @@
     renderInbox();
     renderSentRequests();
     renderWeekReport();
+    renderWeeklyReview();
     runSearch(teamSearchInput.value);
     renderCalendar();
     renderNotice();
