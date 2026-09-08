@@ -1595,9 +1595,12 @@
       allEntriesCache = allEntriesCache.filter(e=>!(e.memberId === memberAtSave && e.date === dateAtSave));
       allEntriesCache.unshift(result.entry);
 
-      const reqId = memberAtSave + "__" + dateAtSave;
-      requestsCache = requestsCache.filter(r=>r.id !== reqId);
-      if(result.request) requestsCache.push(result.request);
+      // Requests accumulate — never wipe previously sent requests when an
+      // entry is re-saved. Only add the new/updated one if it isn't already
+      // in the cache (matched by its own unique id).
+      if(result.request && !requestsCache.some(r=>r.id === result.request.id)){
+        requestsCache.push(result.request);
+      }
       rebuildRequestViews();
 
       saveStatus.textContent = "저장되었습니다";
