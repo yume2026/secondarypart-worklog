@@ -168,11 +168,14 @@
     position:fixed;
     inset:0;
     background:rgba(0,0,0,.45);
-    display:flex;
+    display:none;
     align-items:center;
     justify-content:center;
     z-index:1000;
     padding:20px;
+  }
+  .identity-gate:not([hidden]){
+    display:flex;
   }
   .identity-gate-card{
     background:var(--surface);
@@ -1076,6 +1079,14 @@
     <div id="pillRow" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
   </div>
   <div class="identity-banner" id="identityBanner"></div>
+  <div class="identity-gate" id="identityGate" hidden>
+    <div class="identity-gate-card">
+      <h2>당신은 누구인가요?</h2>
+      <p>실수로 다른 팀원의 칸에 저장하는 사고를 막기 위해 이 기기에서 한 번만 확인합니다.</p>
+      <div class="identity-gate-btns" id="identityGateBtns"></div>
+      <button type="button" class="btn-ghost" id="identitySkip">나중에 선택 (보기만 하기)</button>
+    </div>
+  </div>
 
   <div class="board">
 
@@ -2321,13 +2332,5 @@
   boot();
 })();
 </script>
-  <div class="identity-gate" id="identityGate" hidden>
-    <div class="identity-gate-card">
-      <h2>당신은 누구인가요?</h2>
-      <p>실수로 다른 팀원의 칸에 저장하는 사고를 막기 위해 이 기기에서 한 번만 확인합니다.</p>
-      <div class="identity-gate-btns" id="identityGateBtns"></div>
-      <button type="button" class="btn-ghost" id="identitySkip">나중에 선택 (보기만 하기)</button>
-    </div>
-  </div>
 </body>
 </html>
