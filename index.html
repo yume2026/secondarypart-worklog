@@ -153,6 +153,68 @@
     letter-spacing:.04em;
     margin-right:2px;
   }
+  .identity-banner{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:6px;
+  }
+  .identity-banner b{ color:var(--ink); }
+  .identity-banner a{
+    color:var(--accent-ink);
+    text-decoration:underline;
+    cursor:pointer;
+  }
+  .identity-gate{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    padding:20px;
+  }
+  .identity-gate-card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:24px;
+    max-width:360px;
+    width:100%;
+    box-shadow:0 12px 40px rgba(0,0,0,.25);
+  }
+  .identity-gate-card h2{
+    margin:0 0 8px;
+    font-size:18px;
+    color:var(--ink);
+  }
+  .identity-gate-card p{
+    margin:0 0 16px;
+    font-size:13px;
+    color:var(--muted);
+    line-height:1.5;
+  }
+  .identity-gate-btns{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .identity-gate-btn{
+    padding:12px 14px;
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:var(--surface-2);
+    color:var(--ink);
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    text-align:left;
+  }
+  .identity-gate-btn:hover{
+    border-color:var(--accent);
+    color:var(--accent-ink);
+  }
   .pill{
     display:flex;
     align-items:center;
@@ -623,6 +685,9 @@
   .card.empty.warn{ background:var(--st-hold-bg); border-color:var(--st-hold); }
   .card.empty.warn .who{ color:var(--st-hold); }
   .card.empty.warn .placeholder{ color:var(--st-hold); font-weight:700; }
+  .card.empty.caution{ background:var(--st-progress-bg); border-color:var(--st-progress); }
+  .card.empty.caution .who{ color:var(--st-progress); }
+  .card.empty.caution .placeholder{ color:var(--st-progress); font-weight:700; }
 
   /* ---------- team search ---------- */
   .search-box{ margin-bottom:16px; position:relative; }
@@ -1010,6 +1075,7 @@
     <span class="switcher-label">나는</span>
     <div id="pillRow" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
   </div>
+  <div class="identity-banner" id="identityBanner"></div>
 
   <div class="board">
 
@@ -1514,6 +1580,71 @@
     e.returnValue = "";
   });
 
+  // ---------- light "who are you" identity lock ----------
+  // Anyone with the link can freely click through every member's tab and
+  // type into their entry — there's no login. This isn't real auth (no
+  // password, nothing server-enforced), just a lightweight guard against the
+  // common accident of typing into the wrong person's box: once per device
+  // we ask which teammate this is, remember it, and confirm before letting
+  // that device save anything under a different name.
+  let myIdentity = localStorage.getItem("worklog_identity") || null;
+  const identityBannerEl = document.getElementById("identityBanner");
+  const identityGateEl = document.getElementById("identityGate");
+  const identityGateBtnsEl = document.getElementById("identityGateBtns");
+
+  function renderIdentityBanner(){
+    if(!myIdentity){
+      identityBannerEl.innerHTML = '이 기기의 사용자가 아직 설정되지 않았습니다 · <a id="identitySetLink">본인 확인하기</a>';
+      document.getElementById("identitySetLink").addEventListener("click", (e)=>{
+        e.preventDefault();
+        openIdentityGate();
+      });
+      return;
+    }
+    identityBannerEl.innerHTML = '이 기기는 <b>' + escapeHtml(memberNames[myIdentity] || myIdentity) + '</b>님으로 설정됨 · <a id="identityChangeLink">변경</a>';
+    document.getElementById("identityChangeLink").addEventListener("click", (e)=>{
+      e.preventDefault();
+      openIdentityGate();
+    });
+  }
+
+  function renderIdentityGateButtons(){
+    identityGateBtnsEl.innerHTML = "";
+    MEMBER_IDS.forEach(id=>{
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "identity-gate-btn";
+      b.textContent = memberNames[id] || id;
+      b.addEventListener("click", ()=>{
+        myIdentity = id;
+        localStorage.setItem("worklog_identity", id);
+        identityGateEl.hidden = true;
+        renderIdentityBanner();
+      });
+      identityGateBtnsEl.appendChild(b);
+    });
+  }
+
+  function openIdentityGate(){
+    renderIdentityGateButtons();
+    identityGateEl.hidden = false;
+  }
+  document.getElementById("identitySkip").addEventListener("click", ()=>{
+    identityGateEl.hidden = true;
+  });
+
+  function maybeShowIdentityGate(){
+    if(!myIdentity) openIdentityGate();
+  }
+
+  // Call before any save that would write data under someone's name.
+  // actingAsId is whose entry/notice/schedule is about to be written.
+  function confirmIdentityForAction(actingAsId, actionLabel){
+    if(!myIdentity || actingAsId === myIdentity) return true;
+    const otherName = memberNames[actingAsId] || actingAsId;
+    return confirm('지금 "' + otherName + '"님 이름으로 ' + actionLabel + '하려고 합니다. 본인이 맞나요?\n(본인이 아니라면 취소를 누르고 본인 탭에서 작성해주세요)');
+  }
+
   // ---------- inbox: requests addressed to me ----------
   const inboxListEl = document.getElementById("inboxList");
 
@@ -1609,6 +1740,7 @@
   }
 
   document.getElementById("btnSave").addEventListener("click", ()=>{
+    if(!confirmIdentityForAction(selectedMember, "업무일지를 저장")) return;
     const cleanedTasks = taskRows
       .map(t=>({
         text: (t.text || "").trim(),
@@ -1753,11 +1885,21 @@
       const c = countTasks(tasks);
       const card = document.createElement("div");
       if(!data || c.total === 0){
-        const isOverdue = teamDate === todayStr && new Date().getHours() >= 18;
-        card.className = "card empty" + (isOverdue ? " warn" : "");
+        const isToday = teamDate === todayStr;
+        const hourNow = new Date().getHours();
+        // Two-stage reminder ahead of the (informal) 6pm deadline: a soft
+        // amber nudge from 3pm, then a stronger red warning from 6pm. This
+        // is a passive on-screen cue only — anyone with the dashboard open
+        // sees it, but it can't push a notification to someone who isn't
+        // looking (that would need an email/Slack/알림 integration).
+        const isOverdue = isToday && hourNow >= 18;
+        const isApproaching = isToday && hourNow >= 15 && hourNow < 18;
+        card.className = "card empty" + (isOverdue ? " warn" : (isApproaching ? " caution" : ""));
         const message = isOverdue
           ? "⚠ 아직 업무일지를 작성하지 않았습니다"
-          : (data ? "오늘 등록된 업무가 없습니다" : "아직 작성 전");
+          : isApproaching
+            ? "⏰ 마감(오후 6시) 전까지 작성해주세요"
+            : (data ? "오늘 등록된 업무가 없습니다" : "아직 작성 전");
         card.innerHTML = `
           <div class="card-head"><span class="who">${memberNames[id] || id}</span></div>
           <div class="placeholder">${message}</div>
@@ -1981,6 +2123,7 @@
     calendarGridEl.querySelectorAll(".cal-sched-save").forEach(btn=>{
       btn.addEventListener("click", (e)=>{
         e.stopPropagation();
+        if(!confirmIdentityForAction("m1", "일정을 저장")) return;
         const date = btn.dataset.date;
         const editor = btn.closest(".cal-sched-editor");
         const text = editor ? editor.querySelector("textarea").value.trim() : "";
@@ -2075,6 +2218,7 @@
   noticeToggleBtn.addEventListener("click", openNoticeEdit);
   document.getElementById("noticeCancel").addEventListener("click", closeNoticeEdit);
   document.getElementById("noticeSave").addEventListener("click", ()=>{
+    if(!confirmIdentityForAction("m1", "공지를 저장")) return;
     const text = noticeInputEl.value.trim();
     const author = memberNames.m1 || "임유미";
     noticeMetaEl.textContent = "저장 중…";
@@ -2131,6 +2275,7 @@
     runSearch(teamSearchInput.value);
     renderCalendar();
     renderNotice();
+    renderIdentityBanner();
     loadHistory();
   }
 
@@ -2168,6 +2313,7 @@
     renderRequestToOptions();
     renderAllViews();
     loadOwnEntry();
+    maybeShowIdentityGate();
 
     startPolling();
   }
@@ -2175,5 +2321,13 @@
   boot();
 })();
 </script>
+  <div class="identity-gate" id="identityGate" hidden>
+    <div class="identity-gate-card">
+      <h2>당신은 누구인가요?</h2>
+      <p>실수로 다른 팀원의 칸에 저장하는 사고를 막기 위해 이 기기에서 한 번만 확인합니다.</p>
+      <div class="identity-gate-btns" id="identityGateBtns"></div>
+      <button type="button" class="btn-ghost" id="identitySkip">나중에 선택 (보기만 하기)</button>
+    </div>
+  </div>
 </body>
 </html>
