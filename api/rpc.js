@@ -80,26 +80,35 @@ async function api_saveEntry(payload) {
   else entries.push(entryObj);
   await setJson(KEYS.ENTRIES, entries);
 
-  // reconcile the linked request row (same id scheme as the entry)
+  // Requests accumulate independently of the day's entry — saving the same
+  // entry again (e.g. later that day, or a different request afterward) must
+  // never erase a request that was already sent to someone. We only add a
+  // NEW request row when the current text/target isn't already an open
+  // request linked to this entry; re-saving the exact same open request is a
+  // no-op so we don't spam duplicates on every keystroke-save. Clearing the
+  // request field on a later save does NOT retract requests already sent —
+  // those stay visible until the recipient marks them done.
   let savedRequest = null;
-  const reqIdx = requests.findIndex((r) => r.id === id);
   if (payload.requestTo && payload.request) {
-    const existing = reqIdx >= 0 ? requests[reqIdx] : null;
-    if (existing && existing.to === payload.requestTo && existing.text === payload.request) {
-      // unchanged — keep whatever done/open status it already has
-      savedRequest = existing;
+    const existingOpenSame = requests.find(
+      (r) => r.entryId === id && r.to === payload.requestTo && r.text === payload.request && !r.done
+    );
+    if (existingOpenSame) {
+      savedRequest = existingOpenSame;
     } else {
       savedRequest = {
-        id, from: payload.memberId, to: payload.requestTo, text: payload.request,
-        date: payload.date, createdAt: ts, done: false,
+        id: id + "__" + ts + "__" + Math.random().toString(36).slice(2, 8),
+        entryId: id,
+        from: payload.memberId,
+        to: payload.requestTo,
+        text: payload.request,
+        date: payload.date,
+        createdAt: ts,
+        done: false,
       };
-      if (reqIdx >= 0) requests[reqIdx] = savedRequest;
-      else requests.push(savedRequest);
+      requests.push(savedRequest);
       await setJson(KEYS.REQUESTS, requests);
     }
-  } else if (reqIdx >= 0) {
-    requests.splice(reqIdx, 1);
-    await setJson(KEYS.REQUESTS, requests);
   }
 
   return {
