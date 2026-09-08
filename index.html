@@ -1787,7 +1787,7 @@
       `;
       teamCards.appendChild(card);
     });
-    statAvg.textContent = totalTasks ? Math.round((totalDone / totalTasks) * 100) + "%" : "–";
+    statAvg.textContent = totalTasks ? Math.round((totalDone / totalTasks) * 100) + "%" : "0%";
     statHold.textContent = totalHold;
     statWritten.textContent = written + " / " + MEMBER_IDS.length;
   }
@@ -2154,9 +2154,13 @@
       entryMeta.textContent = "데이터를 불러올 수 없습니다";
     }
 
-    // default the dashboard to the most recent date with any team activity
-    if(allEntriesCache.length){
-      teamDate = allEntriesCache.slice().sort((a,b)=>b.date.localeCompare(a.date))[0].date;
+    // Default the dashboard to the most recent date with any team activity.
+    // Only consider entries dated today or earlier — a stray future-dated
+    // row (bad data, clock skew, a mistaken date pick) must never hijack
+    // everyone's initial view into some other month.
+    const activityUpToToday = allEntriesCache.filter(e=>e.date <= todayStr);
+    if(activityUpToToday.length){
+      teamDate = activityUpToToday.slice().sort((a,b)=>b.date.localeCompare(a.date))[0].date;
       teamDateInput.value = teamDate;
     }
     calendarMonthKey = teamDate.slice(0, 7);
