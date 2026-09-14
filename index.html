@@ -367,7 +367,9 @@
     cursor:pointer;
   }
   .inbox-item .done-btn:hover{ border-color:var(--st-done); color:var(--st-done); }
+  .inbox-item-actions{ display:flex; align-items:center; gap:8px; flex:none; }
   .inbox-empty{ font-size:12.5px; color:var(--faint); }
+  .inbox-hidden-note{ font-size:11.5px; color:var(--faint); padding-top:8px; margin-top:4px; border-top:1px dashed var(--line); }
 
   /* ---------- form ---------- */
   .field{
@@ -1362,18 +1364,27 @@
     return null;
   }
 
+  // Finished requests (done by the recipient, or cancelled by the sender)
+  // no longer need attention, so the sent list would otherwise grow forever
+  // (every request ever sent, forever). Pending ones always stay fully
+  // visible since they still need action; finished ones are trimmed to a
+  // handful of the most recent, just enough to confirm "yes, that went
+  // through", with a note about how many more are hidden.
+  const SENT_FINISHED_SHOWN = 3;
+  let sentRequestsHiddenFinishedCount = 0;
+
   function rebuildRequestViews(){
     openRequestsByTarget = {};
     requestsCache.forEach(r=>{
-      if(r.done || !r.to) return;
+      if(r.done || r.cancelled || !r.to) return;
       if(!openRequestsByTarget[r.to]) openRequestsByTarget[r.to] = [];
       openRequestsByTarget[r.to].push(r);
     });
-    sentRequestsCache = requestsCache
-      .filter(r=>r.from === selectedMember)
-      .slice()
-      .sort((a,b)=>(b.date||"").localeCompare(a.date||""))
-      .slice(0, 10);
+    const mine = requestsCache.filter(r=>r.from === selectedMember);
+    const pending = mine.filter(r=>!r.done && !r.cancelled).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    const finishedSorted = mine.filter(r=>r.done || r.cancelled).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    sentRequestsHiddenFinishedCount = Math.max(0, finishedSorted.length - SENT_FINISHED_SHOWN);
+    sentRequestsCache = pending.concat(finishedSorted.slice(0, SENT_FINISHED_SHOWN));
   }
 
   // ---------- pills ----------
@@ -1774,17 +1785,57 @@
   const sentListEl = document.getElementById("sentList");
 
   function renderSentRequests(){
+    sentListEl.innerHTML = "";
     if(sentRequestsCache.length === 0){
       sentListEl.innerHTML = '<div class="inbox-empty">보낸 요청이 없습니다.</div>';
       return;
     }
-    sentListEl.innerHTML = sentRequestsCache.map(r=>{
+    sentRequestsCache.forEach(r=>{
       const toName = memberNames[r.to] || r.to;
-      return `<div class="inbox-item">
-        <div class="txt"><span class="from">${escapeHtml(toName)}</span> · <span class="meta">${escapeHtml(r.date || "")}</span><br>${escapeHtml(r.text || "")}</div>
-        <span class="chip ${r.done ? 'done' : 'progress'}">${r.done ? '완료됨' : '대기중'}</span>
-      </div>`;
-    }).join("");
+      const row = document.createElement("div");
+      row.className = "inbox-item";
+      const left = document.createElement("div");
+      left.className = "txt";
+      left.innerHTML = `<span class="from">${escapeHtml(toName)}</span> · <span class="meta">${escapeHtml(r.date || "")}</span><br>${escapeHtml(r.text || "")}`;
+      row.appendChild(left);
+
+      const actions = document.createElement("div");
+      actions.className = "inbox-item-actions";
+
+      if(!r.done && !r.cancelled){
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "done-btn";
+        cancelBtn.textContent = "취소";
+        cancelBtn.addEventListener("click", ()=>{
+          if(!confirmIdentityForAction(r.from, "협조 요청을 취소")) return;
+          if(!confirm('"' + toName + '"님에게 보낸 요청을 취소할까요? 취소하면 상대방 화면에서 더 이상 보이지 않습니다.')) return;
+          cancelBtn.disabled = true;
+          gsRun("api_cancelRequest", r.id).then(()=>{
+            const found = requestsCache.find(x=>x.id === r.id);
+            if(found) found.cancelled = true;
+            rebuildRequestViews();
+            renderSentRequests();
+            renderInbox();
+          }).catch(()=>{ cancelBtn.disabled = false; });
+        });
+        actions.appendChild(cancelBtn);
+      }
+
+      const chip = document.createElement("span");
+      chip.className = "chip " + (r.cancelled ? "hold" : (r.done ? "done" : "progress"));
+      chip.textContent = r.cancelled ? "취소됨" : (r.done ? "완료됨" : "대기중");
+      actions.appendChild(chip);
+
+      row.appendChild(actions);
+      sentListEl.appendChild(row);
+    });
+    if(sentRequestsHiddenFinishedCount > 0){
+      const note = document.createElement("div");
+      note.className = "inbox-hidden-note";
+      note.textContent = "이미 완료·취소된 요청 " + sentRequestsHiddenFinishedCount + "건은 목록이 길어지지 않도록 숨겼습니다.";
+      sentListEl.appendChild(note);
+    }
   }
 
   // carry yesterday's unfinished (진행중/보류) tasks into today's fresh, empty form
@@ -2128,7 +2179,8 @@
         const reqs = requestsForEntry(id, d);
         const reqText = reqs.map(r=>{
           const toName = memberNames[r.to] || r.to;
-          return `${toName}님께: ${r.text}${r.done ? " (완료됨)" : " (대기중)"}`;
+          const statusLabel = r.cancelled ? " (취소됨)" : (r.done ? " (완료됨)" : " (대기중)");
+          return `${toName}님께: ${r.text}${statusLabel}`;
         }).join("\n");
         rows.push([
           d,
