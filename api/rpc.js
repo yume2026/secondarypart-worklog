@@ -185,29 +185,12 @@ async function api_saveSchedule(date, text, author) {
   return null;
 }
 
-// TEMPORARY: purge a single test entry+its requests by memberId/date. Added
-// only to clean up automated test data from a feature verification pass;
-// removed again in the next deploy right after use (same pattern used
-// earlier in this project) since an unauthenticated delete endpoint
-// shouldn't stay live in production.
-async function api_adminPurgeTestEntry(memberId, date) {
-  const entries = await getJson(KEYS.ENTRIES, []);
-  const requests = await getJson(KEYS.REQUESTS, []);
-  const id = memberId + "__" + date;
-  const nextEntries = entries.filter((e) => e.id !== id);
-  const nextRequests = requests.filter((r) => r.entryId !== id);
-  await setJson(KEYS.ENTRIES, nextEntries);
-  await setJson(KEYS.REQUESTS, nextRequests);
-  return { removedEntries: entries.length - nextEntries.length, removedRequests: requests.length - nextRequests.length };
-}
-
 const HANDLERS = {
   api_getAll,
   api_saveEntry,
   api_renameMember,
   api_markRequestDone,
   api_cancelRequest,
-  api_adminPurgeTestEntry,
   api_saveNotice,
   api_saveSchedule,
 };
