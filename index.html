@@ -369,7 +369,40 @@
   .inbox-item .done-btn:hover{ border-color:var(--st-done); color:var(--st-done); }
   .inbox-item-actions{ display:flex; align-items:center; gap:8px; flex:none; }
   .inbox-empty{ font-size:12.5px; color:var(--faint); }
-  .inbox-hidden-note{ font-size:11.5px; color:var(--faint); padding-top:8px; margin-top:4px; border-top:1px dashed var(--line); }
+
+  /* ---------- toast (save confirmation, request done/cancel confirmation) ---------- */
+  .toast{
+    position:fixed;
+    left:50%;
+    bottom:22px;
+    transform:translate(-50%, 10px);
+    display:flex;
+    align-items:center;
+    gap:9px;
+    max-width:calc(100vw - 32px);
+    background:var(--ink);
+    color:var(--paper);
+    padding:11px 18px;
+    border-radius:999px;
+    font-size:13.5px;
+    font-weight:600;
+    box-shadow:var(--shadow);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+    z-index:2000;
+  }
+  .toast.show{
+    opacity:1;
+    transform:translate(-50%, 0);
+  }
+  .toast .toast-dot{
+    width:17px; height:17px; border-radius:50%;
+    background:var(--paper);
+    flex:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .toast .toast-dot svg{ width:10px; height:10px; display:block; color:var(--st-done); }
 
   /* ---------- form ---------- */
   .field{
@@ -1365,14 +1398,11 @@
   }
 
   // Finished requests (done by the recipient, or cancelled by the sender)
-  // no longer need attention, so the sent list would otherwise grow forever
-  // (every request ever sent, forever). Pending ones always stay fully
-  // visible since they still need action; finished ones are trimmed to a
-  // handful of the most recent, just enough to confirm "yes, that went
-  // through", with a note about how many more are hidden.
-  const SENT_FINISHED_SHOWN = 3;
-  let sentRequestsHiddenFinishedCount = 0;
-
+  // no longer need attention, so both lists drop them automatically as soon
+  // as they finish — the recipient's inbox item disappears the moment they
+  // mark it done, and the sender's sent-list item disappears the moment it's
+  // done or cancelled. A toast (see showToast) gives the one-time
+  // confirmation instead of leaving a lingering "완료됨" row behind.
   function rebuildRequestViews(){
     openRequestsByTarget = {};
     requestsCache.forEach(r=>{
@@ -1380,11 +1410,8 @@
       if(!openRequestsByTarget[r.to]) openRequestsByTarget[r.to] = [];
       openRequestsByTarget[r.to].push(r);
     });
-    const mine = requestsCache.filter(r=>r.from === selectedMember);
-    const pending = mine.filter(r=>!r.done && !r.cancelled).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-    const finishedSorted = mine.filter(r=>r.done || r.cancelled).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-    sentRequestsHiddenFinishedCount = Math.max(0, finishedSorted.length - SENT_FINISHED_SHOWN);
-    sentRequestsCache = pending.concat(finishedSorted.slice(0, SENT_FINISHED_SHOWN));
+    const mine = requestsCache.filter(r=>r.from === selectedMember && !r.done && !r.cancelled);
+    sentRequestsCache = mine.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   }
 
   // ---------- pills ----------
@@ -1481,6 +1508,26 @@
   const taskAddBtn = document.getElementById("taskAddBtn");
   const saveStatus = document.getElementById("saveStatus");
   const entryMeta = document.getElementById("entryMeta");
+
+  // ---------- toast: a brief, hard-to-miss confirmation that fades on its
+  // own, used for save confirmation and for request done/cancel actions
+  // (which otherwise remove the row with no other feedback). ----------
+  const toastEl = document.createElement("div");
+  toastEl.className = "toast";
+  toastEl.setAttribute("role", "status");
+  toastEl.setAttribute("aria-live", "polite");
+  toastEl.innerHTML =
+    '<span class="toast-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>' +
+    '<span class="toast-text"></span>';
+  document.body.appendChild(toastEl);
+  const toastTextEl = toastEl.querySelector(".toast-text");
+  let toastHideTimer = null;
+  function showToast(message){
+    toastTextEl.textContent = message;
+    toastEl.classList.add("show");
+    if(toastHideTimer) clearTimeout(toastHideTimer);
+    toastHideTimer = setTimeout(()=>{ toastEl.classList.remove("show"); }, 2600);
+  }
 
   let taskRows = [{ text:"", status:"progress", holdReason:"", holdWho:"" }];
 
@@ -1773,6 +1820,7 @@
           rebuildRequestViews();
           renderPills();
           renderInbox();
+          showToast("완료 처리했습니다");
         }).catch(()=>{ btn.disabled = false; });
       });
       row.appendChild(left);
@@ -1784,6 +1832,9 @@
   // ---------- sent requests: requests I have made, with their status ----------
   const sentListEl = document.getElementById("sentList");
 
+  // Only ever holds pending requests (rebuildRequestViews already drops
+  // done/cancelled ones), so every row here is still waiting on someone —
+  // no status chip needed, just the cancel action.
   function renderSentRequests(){
     sentListEl.innerHTML = "";
     if(sentRequestsCache.length === 0){
@@ -1802,40 +1853,33 @@
       const actions = document.createElement("div");
       actions.className = "inbox-item-actions";
 
-      if(!r.done && !r.cancelled){
-        const cancelBtn = document.createElement("button");
-        cancelBtn.type = "button";
-        cancelBtn.className = "done-btn";
-        cancelBtn.textContent = "취소";
-        cancelBtn.addEventListener("click", ()=>{
-          if(!confirmIdentityForAction(r.from, "협조 요청을 취소")) return;
-          if(!confirm('"' + toName + '"님에게 보낸 요청을 취소할까요? 취소하면 상대방 화면에서 더 이상 보이지 않습니다.')) return;
-          cancelBtn.disabled = true;
-          gsRun("api_cancelRequest", r.id).then(()=>{
-            const found = requestsCache.find(x=>x.id === r.id);
-            if(found) found.cancelled = true;
-            rebuildRequestViews();
-            renderSentRequests();
-            renderInbox();
-          }).catch(()=>{ cancelBtn.disabled = false; });
-        });
-        actions.appendChild(cancelBtn);
-      }
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "done-btn";
+      cancelBtn.textContent = "취소";
+      cancelBtn.addEventListener("click", ()=>{
+        if(!confirmIdentityForAction(r.from, "협조 요청을 취소")) return;
+        if(!confirm('"' + toName + '"님에게 보낸 요청을 취소할까요? 취소하면 상대방 화면에서 더 이상 보이지 않습니다.')) return;
+        cancelBtn.disabled = true;
+        gsRun("api_cancelRequest", r.id).then(()=>{
+          const found = requestsCache.find(x=>x.id === r.id);
+          if(found) found.cancelled = true;
+          rebuildRequestViews();
+          renderSentRequests();
+          renderInbox();
+          showToast('"' + toName + '"님에게 보낸 요청을 취소했습니다');
+        }).catch(()=>{ cancelBtn.disabled = false; });
+      });
+      actions.appendChild(cancelBtn);
 
       const chip = document.createElement("span");
-      chip.className = "chip " + (r.cancelled ? "hold" : (r.done ? "done" : "progress"));
-      chip.textContent = r.cancelled ? "취소됨" : (r.done ? "완료됨" : "대기중");
+      chip.className = "chip progress";
+      chip.textContent = "대기중";
       actions.appendChild(chip);
 
       row.appendChild(actions);
       sentListEl.appendChild(row);
     });
-    if(sentRequestsHiddenFinishedCount > 0){
-      const note = document.createElement("div");
-      note.className = "inbox-hidden-note";
-      note.textContent = "이미 완료·취소된 요청 " + sentRequestsHiddenFinishedCount + "건은 목록이 길어지지 않도록 숨겼습니다.";
-      sentListEl.appendChild(note);
-    }
   }
 
   // carry yesterday's unfinished (진행중/보류) tasks into today's fresh, empty form
@@ -1925,6 +1969,7 @@
 
       saveStatus.textContent = "저장되었습니다";
       saveStatus.classList.add("ok");
+      showToast("업무일지가 저장되었습니다");
       if(selectedMember === memberAtSave && entryDate === dateAtSave){
         entryMeta.textContent = "마지막 저장 " + new Date(result.entry.updatedAt).toLocaleString("ko-KR");
         markFormClean();
