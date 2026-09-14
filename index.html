@@ -1492,6 +1492,7 @@
         if(!confirmDiscardIfDirty()) return;
         selectedMember = id;
         localStorage.setItem("worklog_member", id);
+        inboxExpandedRequestId = null;
         rebuildRequestViews();
         renderPills();
         renderRequestToOptions();
@@ -1842,7 +1843,15 @@
   // disappear from their own list.
   let inboxExpandedRequestId = null;
 
-  function renderInbox(){
+  function renderInbox(opts){
+    // The background poll (see startPolling) re-fetches data and re-renders
+    // everything every few seconds. If someone is mid-way through typing a
+    // done-comment when that fires, a normal render would blow away the
+    // input they're typing into and rebuild it empty — from their side it
+    // just looks like their comment vanished. So a poll-triggered render
+    // passes skipWhileEditing and we leave the open comment box alone;
+    // explicit actions (opening it, submitting, cancelling) always render.
+    if(opts && opts.skipWhileEditing && inboxExpandedRequestId) return;
     const items = (openRequestsByTarget[selectedMember] || [])
       .slice()
       .sort((a, b)=>(b.createdAt || "").localeCompare(a.createdAt || ""));
@@ -2678,10 +2687,10 @@
     });
   }
 
-  function renderAllViews(){
+  function renderAllViews(opts){
     renderPills();
     renderTeam();
-    renderInbox();
+    renderInbox(opts);
     renderSentRequests();
     renderWeekReport();
     renderWeeklyReview();
@@ -2695,7 +2704,7 @@
   function startPolling(){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(()=>{
-      refreshAll().then(renderAllViews).catch(()=>{});
+      refreshAll().then(()=>renderAllViews({ skipWhileEditing: true })).catch(()=>{});
     }, POLL_INTERVAL_MS);
   }
 
