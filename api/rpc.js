@@ -131,13 +131,32 @@ async function api_renameMember(id, name) {
   return { id, name };
 }
 
-async function api_markRequestDone(requestId) {
+// The recipient can leave a short comment when marking a request done (what
+// they actually did), so the sender gets more than a silent status flip.
+// The request isn't cleared from the sender's list yet at this point — it
+// stays visible with the comment until the sender acknowledges it (see
+// api_acknowledgeRequest), so the sender doesn't miss the confirmation.
+async function api_markRequestDone(requestId, comment) {
   const requests = await getJson(KEYS.REQUESTS, []);
   const row = requests.find((r) => r.id === requestId);
   if (!row) return null;
   row.done = true;
+  row.doneComment = (comment || "").trim();
+  row.doneAt = nowIso();
+  row.acknowledged = false;
   await setJson(KEYS.REQUESTS, requests);
-  return { id: requestId, done: true };
+  return { id: requestId, done: true, doneComment: row.doneComment, doneAt: row.doneAt };
+}
+
+// The sender reads the recipient's done comment, then acknowledges it —
+// only then does the request disappear from the sender's list too.
+async function api_acknowledgeRequest(requestId) {
+  const requests = await getJson(KEYS.REQUESTS, []);
+  const row = requests.find((r) => r.id === requestId);
+  if (!row) return null;
+  row.acknowledged = true;
+  await setJson(KEYS.REQUESTS, requests);
+  return { id: requestId, acknowledged: true };
 }
 
 // The sender can withdraw a request they no longer need (sent by mistake,
@@ -190,6 +209,7 @@ const HANDLERS = {
   api_saveEntry,
   api_renameMember,
   api_markRequestDone,
+  api_acknowledgeRequest,
   api_cancelRequest,
   api_saveNotice,
   api_saveSchedule,
