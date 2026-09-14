@@ -87,11 +87,14 @@ async function api_saveEntry(payload) {
   // request linked to this entry; re-saving the exact same open request is a
   // no-op so we don't spam duplicates on every keystroke-save. Clearing the
   // request field on a later save does NOT retract requests already sent —
-  // those stay visible until the recipient marks them done.
+  // those stay visible until the recipient marks them done. A cancelled
+  // request must NOT match here, or re-sending the same text after
+  // cancelling it would silently resurrect the cancelled row instead of
+  // creating a fresh request.
   let savedRequest = null;
   if (payload.requestTo && payload.request) {
     const existingOpenSame = requests.find(
-      (r) => r.entryId === id && r.to === payload.requestTo && r.text === payload.request && !r.done
+      (r) => r.entryId === id && r.to === payload.requestTo && r.text === payload.request && !r.done && !r.cancelled
     );
     if (existingOpenSame) {
       savedRequest = existingOpenSame;
@@ -137,6 +140,22 @@ async function api_markRequestDone(requestId) {
   return { id: requestId, done: true };
 }
 
+// The sender can withdraw a request they no longer need (sent by mistake,
+// duplicate, or the need went away). This is distinct from "done" — done
+// means the recipient handled it, cancelled means the sender pulled it back
+// — so a cancelled request stops showing up for the recipient but the
+// sender still sees a brief "취소됨" record of it (trimmed client-side same
+// as done ones, so it doesn't accumulate forever).
+async function api_cancelRequest(requestId) {
+  const requests = await getJson(KEYS.REQUESTS, []);
+  const row = requests.find((r) => r.id === requestId);
+  if (!row) return null;
+  if (row.done) return { id: requestId, done: true, cancelled: false }; // already handled, nothing to cancel
+  row.cancelled = true;
+  await setJson(KEYS.REQUESTS, requests);
+  return { id: requestId, cancelled: true };
+}
+
 async function api_saveNotice(weekStart, author, text) {
   const notices = await getJson(KEYS.NOTICES, []);
   const ts = nowIso();
@@ -171,6 +190,7 @@ const HANDLERS = {
   api_saveEntry,
   api_renameMember,
   api_markRequestDone,
+  api_cancelRequest,
   api_saveNotice,
   api_saveSchedule,
 };
