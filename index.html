@@ -369,6 +369,45 @@
   .inbox-item .done-btn:hover{ border-color:var(--st-done); color:var(--st-done); }
   .inbox-item-actions{ display:flex; align-items:center; gap:8px; flex:none; }
   .inbox-empty{ font-size:12.5px; color:var(--faint); }
+  .done-comment{
+    margin-top:4px;
+    font-size:12px;
+    color:var(--st-done);
+    background:var(--st-done-bg);
+    border-radius:7px;
+    padding:5px 8px;
+    display:inline-block;
+  }
+  .inbox-done-extra{
+    display:flex;
+    gap:8px;
+    padding:6px 0 8px;
+  }
+  .inbox-done-extra input{
+    flex:1;
+    min-width:0;
+    border:1px solid var(--st-done);
+    background:var(--st-done-bg);
+    border-radius:7px;
+    padding:6px 9px;
+    font-size:12px;
+    color:var(--ink);
+  }
+  .done-btn-confirm{
+    border-color:var(--st-done) !important;
+    color:var(--st-done) !important;
+  }
+  .done-btn-back{
+    flex:none;
+    border:1px solid transparent;
+    background:none;
+    color:var(--faint);
+    font-size:11.5px;
+    font-weight:600;
+    cursor:pointer;
+    padding:6px 4px;
+  }
+  .done-btn-back:hover{ color:var(--muted); }
 
   /* ---------- toast (save confirmation, request done/cancel confirmation) ---------- */
   .toast{
@@ -1397,12 +1436,15 @@
     return null;
   }
 
-  // Finished requests (done by the recipient, or cancelled by the sender)
-  // no longer need attention, so both lists drop them automatically as soon
-  // as they finish — the recipient's inbox item disappears the moment they
-  // mark it done, and the sender's sent-list item disappears the moment it's
-  // done or cancelled. A toast (see showToast) gives the one-time
-  // confirmation instead of leaving a lingering "완료됨" row behind.
+  // The recipient's inbox always drops a request the instant it's done or
+  // cancelled — nothing left for them to do, so it shouldn't linger.
+  //
+  // The sender's sent-list is a little different: a cancelled request
+  // disappears immediately too (they cancelled it themselves, nothing to
+  // confirm), but a DONE request stays visible — with the recipient's
+  // comment, if any — until the sender explicitly acknowledges it. That way
+  // the sender always gets a real confirmation moment instead of a request
+  // just silently vanishing one day. Once acknowledged, it disappears too.
   function rebuildRequestViews(){
     openRequestsByTarget = {};
     requestsCache.forEach(r=>{
@@ -1410,7 +1452,7 @@
       if(!openRequestsByTarget[r.to]) openRequestsByTarget[r.to] = [];
       openRequestsByTarget[r.to].push(r);
     });
-    const mine = requestsCache.filter(r=>r.from === selectedMember && !r.done && !r.cancelled);
+    const mine = requestsCache.filter(r=>r.from === selectedMember && !r.cancelled && !(r.done && r.acknowledged));
     sentRequestsCache = mine.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   }
 
@@ -1793,6 +1835,13 @@
   // ---------- inbox: requests addressed to me ----------
   const inboxListEl = document.getElementById("inboxList");
 
+  // id of the request whose "완료" comment box is currently open (only one
+  // at a time). Clicking 완료 doesn't complete the request right away — it
+  // opens a small comment field first, since the sender relies on that
+  // comment to know what actually happened before they see the request
+  // disappear from their own list.
+  let inboxExpandedRequestId = null;
+
   function renderInbox(){
     const items = (openRequestsByTarget[selectedMember] || [])
       .slice()
@@ -1808,22 +1857,71 @@
       const left = document.createElement("div");
       left.className = "txt";
       left.innerHTML = `<span class="from">${escapeHtml(memberNames[item.from] || item.from)}</span> · <span class="meta">${escapeHtml(item.date || "")}</span><br>${escapeHtml(item.text || "")}`;
+      row.appendChild(left);
+
+      if(inboxExpandedRequestId === item.id){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "done-btn";
+        btn.textContent = "완료";
+        btn.disabled = true;
+        row.appendChild(btn);
+        inboxListEl.appendChild(row);
+
+        const extra = document.createElement("div");
+        extra.className = "inbox-done-extra";
+
+        const commentInput = document.createElement("input");
+        commentInput.type = "text";
+        commentInput.placeholder = "완료 코멘트 (선택, 어떻게 처리했는지)";
+        extra.appendChild(commentInput);
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.className = "done-btn done-btn-confirm";
+        confirmBtn.textContent = "완료 처리";
+        extra.appendChild(confirmBtn);
+
+        const backBtn = document.createElement("button");
+        backBtn.type = "button";
+        backBtn.className = "done-btn-back";
+        backBtn.textContent = "취소";
+        extra.appendChild(backBtn);
+
+        function submit(){
+          confirmBtn.disabled = true;
+          backBtn.disabled = true;
+          const comment = commentInput.value.trim();
+          gsRun("api_markRequestDone", item.id, comment).then(()=>{
+            const r = requestsCache.find(x=>x.id === item.id);
+            if(r){ r.done = true; r.doneComment = comment; r.acknowledged = false; }
+            inboxExpandedRequestId = null;
+            rebuildRequestViews();
+            renderPills();
+            renderInbox();
+            showToast("완료 처리했습니다");
+          }).catch(()=>{ confirmBtn.disabled = false; backBtn.disabled = false; });
+        }
+        confirmBtn.addEventListener("click", submit);
+        commentInput.addEventListener("keydown", (e)=>{ if(e.key === "Enter") submit(); });
+        backBtn.addEventListener("click", ()=>{
+          inboxExpandedRequestId = null;
+          renderInbox();
+        });
+
+        inboxListEl.appendChild(extra);
+        commentInput.focus();
+        return;
+      }
+
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "done-btn";
       btn.textContent = "완료";
       btn.addEventListener("click", ()=>{
-        btn.disabled = true;
-        gsRun("api_markRequestDone", item.id).then(()=>{
-          const r = requestsCache.find(x=>x.id === item.id);
-          if(r) r.done = true;
-          rebuildRequestViews();
-          renderPills();
-          renderInbox();
-          showToast("완료 처리했습니다");
-        }).catch(()=>{ btn.disabled = false; });
+        inboxExpandedRequestId = item.id;
+        renderInbox();
       });
-      row.appendChild(left);
       row.appendChild(btn);
       inboxListEl.appendChild(row);
     });
@@ -1832,9 +1930,11 @@
   // ---------- sent requests: requests I have made, with their status ----------
   const sentListEl = document.getElementById("sentList");
 
-  // Only ever holds pending requests (rebuildRequestViews already drops
-  // done/cancelled ones), so every row here is still waiting on someone —
-  // no status chip needed, just the cancel action.
+  // Holds pending requests (still waiting — cancel action, 대기중 chip) and
+  // done-but-not-yet-acknowledged requests (recipient finished it, comment
+  // shown, waiting on ME to confirm I saw it). Cancelled requests, and
+  // acknowledged-done requests, are dropped already in rebuildRequestViews
+  // so they never reach here.
   function renderSentRequests(){
     sentListEl.innerHTML = "";
     if(sentRequestsCache.length === 0){
@@ -1847,35 +1947,62 @@
       row.className = "inbox-item";
       const left = document.createElement("div");
       left.className = "txt";
-      left.innerHTML = `<span class="from">${escapeHtml(toName)}</span> · <span class="meta">${escapeHtml(r.date || "")}</span><br>${escapeHtml(r.text || "")}`;
+      let html = `<span class="from">${escapeHtml(toName)}</span> · <span class="meta">${escapeHtml(r.date || "")}</span><br>${escapeHtml(r.text || "")}`;
+      if(r.done && r.doneComment){
+        html += `<div class="done-comment">완료 코멘트: ${escapeHtml(r.doneComment)}</div>`;
+      }
+      left.innerHTML = html;
       row.appendChild(left);
 
       const actions = document.createElement("div");
       actions.className = "inbox-item-actions";
 
-      const cancelBtn = document.createElement("button");
-      cancelBtn.type = "button";
-      cancelBtn.className = "done-btn";
-      cancelBtn.textContent = "취소";
-      cancelBtn.addEventListener("click", ()=>{
-        if(!confirmIdentityForAction(r.from, "협조 요청을 취소")) return;
-        if(!confirm('"' + toName + '"님에게 보낸 요청을 취소할까요? 취소하면 상대방 화면에서 더 이상 보이지 않습니다.')) return;
-        cancelBtn.disabled = true;
-        gsRun("api_cancelRequest", r.id).then(()=>{
-          const found = requestsCache.find(x=>x.id === r.id);
-          if(found) found.cancelled = true;
-          rebuildRequestViews();
-          renderSentRequests();
-          renderInbox();
-          showToast('"' + toName + '"님에게 보낸 요청을 취소했습니다');
-        }).catch(()=>{ cancelBtn.disabled = false; });
-      });
-      actions.appendChild(cancelBtn);
+      if(r.done){
+        const ackBtn = document.createElement("button");
+        ackBtn.type = "button";
+        ackBtn.className = "done-btn done-btn-confirm";
+        ackBtn.textContent = "확인";
+        ackBtn.addEventListener("click", ()=>{
+          ackBtn.disabled = true;
+          gsRun("api_acknowledgeRequest", r.id).then(()=>{
+            const found = requestsCache.find(x=>x.id === r.id);
+            if(found) found.acknowledged = true;
+            rebuildRequestViews();
+            renderSentRequests();
+            showToast("확인했습니다");
+          }).catch(()=>{ ackBtn.disabled = false; });
+        });
+        actions.appendChild(ackBtn);
 
-      const chip = document.createElement("span");
-      chip.className = "chip progress";
-      chip.textContent = "대기중";
-      actions.appendChild(chip);
+        const chip = document.createElement("span");
+        chip.className = "chip done";
+        chip.textContent = "완료됨";
+        actions.appendChild(chip);
+      } else {
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "done-btn";
+        cancelBtn.textContent = "취소";
+        cancelBtn.addEventListener("click", ()=>{
+          if(!confirmIdentityForAction(r.from, "협조 요청을 취소")) return;
+          if(!confirm('"' + toName + '"님에게 보낸 요청을 취소할까요? 취소하면 상대방 화면에서 더 이상 보이지 않습니다.')) return;
+          cancelBtn.disabled = true;
+          gsRun("api_cancelRequest", r.id).then(()=>{
+            const found = requestsCache.find(x=>x.id === r.id);
+            if(found) found.cancelled = true;
+            rebuildRequestViews();
+            renderSentRequests();
+            renderInbox();
+            showToast('"' + toName + '"님에게 보낸 요청을 취소했습니다');
+          }).catch(()=>{ cancelBtn.disabled = false; });
+        });
+        actions.appendChild(cancelBtn);
+
+        const chip = document.createElement("span");
+        chip.className = "chip progress";
+        chip.textContent = "대기중";
+        actions.appendChild(chip);
+      }
 
       row.appendChild(actions);
       sentListEl.appendChild(row);
@@ -2225,7 +2352,8 @@
         const reqText = reqs.map(r=>{
           const toName = memberNames[r.to] || r.to;
           const statusLabel = r.cancelled ? " (취소됨)" : (r.done ? " (완료됨)" : " (대기중)");
-          return `${toName}님께: ${r.text}${statusLabel}`;
+          const commentPart = (r.done && r.doneComment) ? ` - 완료 코멘트: ${r.doneComment}` : "";
+          return `${toName}님께: ${r.text}${statusLabel}${commentPart}`;
         }).join("\n");
         rows.push([
           d,
