@@ -1038,6 +1038,107 @@
   .cal-sched-save:hover{ background:var(--accent-ink); }
   .cal-sched-cancel{ border:1px solid var(--line); background:var(--surface-2); color:var(--muted); }
 
+  /* ---------- project periods (highlighted bands on the monthly calendar) ---------- */
+  .project-manage{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    margin-bottom:14px;
+  }
+  .project-chip-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    flex:1;
+    min-width:0;
+  }
+  .project-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border:1px solid var(--line);
+    background:var(--surface-2);
+    border-radius:999px;
+    padding:4px 6px 4px 10px;
+    font-size:11.5px;
+    color:var(--ink);
+  }
+  .project-chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .project-chip .range{ color:var(--faint); font-variant-numeric:tabular-nums; }
+  .project-chip .del{
+    border:none;
+    background:none;
+    color:var(--faint);
+    cursor:pointer;
+    font-size:13px;
+    line-height:1;
+    padding:2px 4px;
+    border-radius:50%;
+  }
+  .project-chip .del:hover{ color:var(--st-hold); background:var(--st-hold-bg); }
+  .project-add-form{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    width:100%;
+    margin-top:8px;
+    padding:12px;
+    border:1px dashed var(--line);
+    border-radius:10px;
+    background:var(--surface-2);
+  }
+  #projTitleInput{
+    flex:1;
+    min-width:160px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--surface);
+    padding:8px 10px;
+    font-size:13px;
+    color:var(--ink);
+  }
+  .project-add-dates{ display:flex; align-items:center; gap:6px; }
+  .project-add-dates input[type="date"]{
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--surface);
+    padding:7px 8px;
+    font-size:12.5px;
+    font-variant-numeric:tabular-nums;
+    color:var(--ink);
+  }
+  .project-add-tilde{ color:var(--faint); }
+  .project-color-swatches{ display:flex; gap:6px; }
+  .project-color-dot{
+    width:22px; height:22px;
+    border-radius:50%;
+    border:2px solid transparent;
+    cursor:pointer;
+    padding:0;
+  }
+  .project-color-dot.selected{ border-color:var(--ink); }
+  .project-add-actions{ display:flex; gap:8px; margin-left:auto; }
+  .project-add-confirm{ padding:8px 16px; font-size:12.5px; }
+
+  .cal-project-bars{
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+  }
+  .cal-project-bar{
+    height:16px;
+    line-height:16px;
+    padding:0 5px;
+    font-size:9.5px;
+    font-weight:700;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin:0 -9px;
+  }
+
   .team-date-picker{
     display:flex;
     align-items:center;
@@ -1326,9 +1427,26 @@
           <button class="btn-ghost" id="calToday" type="button">오늘</button>
         </div>
       </div>
+      <div class="project-manage">
+        <div class="project-chip-list" id="projectChipList"></div>
+        <button class="btn-ghost" id="projectAddToggle" type="button">+ 프로젝트 기간 추가</button>
+        <div class="project-add-form" id="projectAddForm" hidden>
+          <input type="text" id="projTitleInput" placeholder="예: 성수 팝업스토어" maxlength="40">
+          <div class="project-add-dates">
+            <input type="date" id="projStartInput">
+            <span class="project-add-tilde">~</span>
+            <input type="date" id="projEndInput">
+          </div>
+          <div class="project-color-swatches" id="projColorSwatches"></div>
+          <div class="project-add-actions">
+            <button class="btn-ghost" id="projAddCancel" type="button">취소</button>
+            <button class="btn-save project-add-confirm" id="projAddConfirm" type="button">추가</button>
+          </div>
+        </div>
+      </div>
       <div class="calendar-weekdays" id="calWeekdays"></div>
       <div class="calendar-grid" id="calendarGrid"></div>
-      <p class="footnote">날짜를 클릭하면 위 팀 취합 대시보드가 그 날짜로 이동합니다.</p>
+      <p class="footnote">날짜를 클릭하면 위 팀 취합 대시보드가 그 날짜로 이동합니다. 팝업·플리마켓 같은 프로젝트 기간은 달력에 형광펜처럼 표시됩니다.</p>
     </section>
 
     <!-- weekly review for the Monday team meeting -->
@@ -1416,8 +1534,23 @@
   let requestsCache = [];        // array of {id,from,to,text,date,createdAt,done}
   let noticesCache = {};         // weekStart -> {weekStart,author,text,updatedAt}
   let scheduleCache = {};        // date -> {date,text,author,updatedAt}
+  let projectsCache = [];        // array of {id,title,startDate,endDate,color,author,createdAt} — team-wide project/event periods (팝업, 플리마켓 등), highlighted on the monthly calendar
   let openRequestsByTarget = {};
   let sentRequestsCache = [];
+
+  // Fixed "highlighter" palette for project periods — deliberately distinct
+  // from the task-status colors (progress/done/hold) so a project band on
+  // the calendar is never mistaken for a status indicator. Same across
+  // light/dark theme, like a real highlighter looks the same either way.
+  const PROJECT_COLORS = {
+    yellow: { bg:"#FFE066", ink:"#5C4B00" },
+    pink:   { bg:"#FFADD6", ink:"#7A1150" },
+    sky:    { bg:"#8ECBFF", ink:"#0B3D63" },
+    purple: { bg:"#C9A6FF", ink:"#3A1266" },
+    teal:   { bg:"#7FE0C9", ink:"#0B4A3C" },
+    peach:  { bg:"#FFB37F", ink:"#6B2E00" },
+  };
+  const PROJECT_COLOR_KEYS = Object.keys(PROJECT_COLORS);
 
   const currentWeekKey = getMondayStr(todayStr);
   let noticeEditingOpen = false;
@@ -2442,6 +2575,126 @@
 
   calWeekdaysEl.innerHTML = WEEKDAY_KR.map(w=>`<span>${w}</span>`).join("");
 
+  // ---------- project periods (팝업, 플리마켓 등 — highlighted like a
+  // highlighter marker across the days they run, on the monthly calendar) ----------
+  const projectChipListEl = document.getElementById("projectChipList");
+  const projectAddToggleEl = document.getElementById("projectAddToggle");
+  const projectAddFormEl = document.getElementById("projectAddForm");
+  const projTitleInputEl = document.getElementById("projTitleInput");
+  const projStartInputEl = document.getElementById("projStartInput");
+  const projEndInputEl = document.getElementById("projEndInput");
+  const projColorSwatchesEl = document.getElementById("projColorSwatches");
+  const projAddConfirmEl = document.getElementById("projAddConfirm");
+  const projAddCancelEl = document.getElementById("projAddCancel");
+
+  let selectedProjectColor = PROJECT_COLOR_KEYS[0];
+
+  projColorSwatchesEl.innerHTML = "";
+  PROJECT_COLOR_KEYS.forEach(key=>{
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "project-color-dot" + (key === selectedProjectColor ? " selected" : "");
+    dot.style.background = PROJECT_COLORS[key].bg;
+    dot.title = key;
+    dot.addEventListener("click", ()=>{
+      selectedProjectColor = key;
+      projColorSwatchesEl.querySelectorAll(".project-color-dot").forEach(d=>d.classList.remove("selected"));
+      dot.classList.add("selected");
+    });
+    projColorSwatchesEl.appendChild(dot);
+  });
+
+  function resetProjectAddForm(){
+    projTitleInputEl.value = "";
+    projStartInputEl.value = todayStr;
+    projEndInputEl.value = todayStr;
+    selectedProjectColor = PROJECT_COLOR_KEYS[0];
+    projColorSwatchesEl.querySelectorAll(".project-color-dot").forEach((d, i)=>d.classList.toggle("selected", i === 0));
+  }
+
+  projectAddToggleEl.addEventListener("click", ()=>{
+    const opening = projectAddFormEl.hidden;
+    if(opening) resetProjectAddForm();
+    projectAddFormEl.hidden = !opening;
+    if(opening) projTitleInputEl.focus();
+  });
+  projAddCancelEl.addEventListener("click", ()=>{
+    projectAddFormEl.hidden = true;
+  });
+  projAddConfirmEl.addEventListener("click", ()=>{
+    const title = projTitleInputEl.value.trim();
+    let startDate = projStartInputEl.value;
+    let endDate = projEndInputEl.value;
+    if(!title){ projTitleInputEl.focus(); return; }
+    if(!startDate || !endDate){ (startDate ? projEndInputEl : projStartInputEl).focus(); return; }
+    if(startDate > endDate){ const t = startDate; startDate = endDate; endDate = t; }
+    projAddConfirmEl.disabled = true;
+    gsRun("api_saveProject", { title, startDate, endDate, color: selectedProjectColor, author: selectedMember })
+      .then(saved=>{
+        projAddConfirmEl.disabled = false;
+        if(!saved) return;
+        projectsCache.push(saved);
+        projectAddFormEl.hidden = true;
+        renderProjectChips();
+        renderCalendar();
+        showToast("프로젝트 기간을 추가했습니다");
+      }).catch(()=>{ projAddConfirmEl.disabled = false; });
+  });
+
+  function formatShortDate(dateStr){
+    const d = fromDateStr(dateStr);
+    return (d.getMonth() + 1) + "/" + d.getDate();
+  }
+
+  function renderProjectChips(){
+    projectChipListEl.innerHTML = "";
+    const sorted = projectsCache.slice().sort((a,b)=>(a.startDate||"").localeCompare(b.startDate||""));
+    sorted.forEach(p=>{
+      const color = PROJECT_COLORS[p.color] || PROJECT_COLORS[PROJECT_COLOR_KEYS[0]];
+      const chip = document.createElement("span");
+      chip.className = "project-chip";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = color.bg;
+      chip.appendChild(dot);
+      const label = document.createElement("span");
+      label.textContent = p.title;
+      chip.appendChild(label);
+      const range = document.createElement("span");
+      range.className = "range";
+      range.textContent = formatShortDate(p.startDate) + "~" + formatShortDate(p.endDate);
+      chip.appendChild(range);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "del";
+      del.setAttribute("aria-label", "프로젝트 기간 삭제");
+      del.innerHTML = "&times;";
+      del.addEventListener("click", ()=>{
+        if(!confirm('"' + p.title + '" 프로젝트 기간을 삭제할까요?')) return;
+        del.disabled = true;
+        gsRun("api_deleteProject", p.id).then(()=>{
+          projectsCache = projectsCache.filter(x=>x.id !== p.id);
+          renderProjectChips();
+          renderCalendar();
+        }).catch(()=>{ del.disabled = false; });
+      });
+      chip.appendChild(del);
+      projectChipListEl.appendChild(chip);
+    });
+  }
+
+  // Projects overlapping the currently displayed month, in a stable order —
+  // each project keeps the same "lane" (stack position) across every day
+  // and every week row it appears in, so its band lines up as one
+  // continuous stripe instead of jumping around from cell to cell.
+  function projectsForMonth(yearMonth){
+    const monthStart = yearMonth + "-01";
+    const monthEnd = yearMonth + "-" + pad(daysInMonth(yearMonth));
+    return projectsCache
+      .filter(p=>p.startDate <= monthEnd && p.endDate >= monthStart)
+      .sort((a,b)=>(a.startDate === b.startDate ? (a.id||"").localeCompare(b.id||"") : a.startDate.localeCompare(b.startDate)));
+  }
+
   function daysInMonth(yearMonth){
     const [y, m] = yearMonth.split("-").map(Number);
     return new Date(y, m, 0).getDate();
@@ -2474,6 +2727,7 @@
 
     const total = daysInMonth(calendarMonthKey);
     const startWeekday = firstWeekdayOfMonth(calendarMonthKey);
+    const monthProjects = projectsForMonth(calendarMonthKey);
     let html = "";
     for(let i = 0; i < startWeekday; i++){
       html += '<div class="cal-cell blank"></div>';
@@ -2485,6 +2739,20 @@
       const dayTotal = info ? info.done + info.progress + info.hold : 0;
       const sched = scheduleCache[dateStr];
       const isEditingThis = scheduleEditingDate === dateStr;
+
+      // Project bars: rounded at the project's true start/end, and also at
+      // week-row boundaries (Sun/Sat) so a long project reads as a clean
+      // segment on every row it crosses, not one giant unbroken shape.
+      const projectBarsHtml = monthProjects
+        .filter(p=>p.startDate <= dateStr && dateStr <= p.endDate)
+        .map(p=>{
+          const color = PROJECT_COLORS[p.color] || PROJECT_COLORS[PROJECT_COLOR_KEYS[0]];
+          const roundedLeft = dateStr === p.startDate || weekday === 0;
+          const roundedRight = dateStr === p.endDate || weekday === 6;
+          const isLabelCell = dateStr === p.startDate || (weekday === 0 && dateStr > p.startDate);
+          const radius = (roundedLeft ? "5px" : "0") + " " + (roundedRight ? "5px" : "0") + " " + (roundedRight ? "5px" : "0") + " " + (roundedLeft ? "5px" : "0");
+          return `<div class="cal-project-bar" style="background:${color.bg};color:${color.ink};border-radius:${radius};" title="${escapeHtml(p.title)} (${p.startDate}~${p.endDate})">${isLabelCell ? escapeHtml(p.title) : ""}</div>`;
+        }).join("");
 
       const classes = ["cal-cell"];
       if(weekday === 0 || weekday === 6) classes.push("weekend");
@@ -2517,6 +2785,7 @@
 
       html += `<div class="${classes.join(' ')}" data-date="${dateStr}">
         <span class="cal-num">${day}</span>
+        ${projectBarsHtml ? `<div class="cal-project-bars">${projectBarsHtml}</div>` : ""}
         <div class="cal-body">${bodyHtml}</div>
       </div>`;
     }
@@ -2683,6 +2952,7 @@
       (data.notices || []).forEach(n=>{ if(n && n.weekStart) noticesCache[n.weekStart] = n; });
       scheduleCache = {};
       (data.schedule || []).forEach(s=>{ if(s && s.date) scheduleCache[s.date] = s; });
+      projectsCache = data.projects || [];
       rebuildRequestViews();
     });
   }
@@ -2695,6 +2965,7 @@
     renderWeekReport();
     renderWeeklyReview();
     runSearch(teamSearchInput.value);
+    renderProjectChips();
     renderCalendar();
     renderNotice();
     renderIdentityBanner();
