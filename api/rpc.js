@@ -12,6 +12,7 @@ const KEYS = {
   REQUESTS: PFX + "requests",
   NOTICES: PFX + "notices",
   SCHEDULE: PFX + "schedule",
+  PROJECTS: PFX + "projects",
 };
 
 const DEFAULT_MEMBERS = { m1: "임유미", m2: "양선영", m3: "이한나", m4: "조윤서" };
@@ -51,10 +52,11 @@ async function api_getAll() {
   const requests = await getJson(KEYS.REQUESTS, []);
   const notices = await getJson(KEYS.NOTICES, []);
   const schedule = await getJson(KEYS.SCHEDULE, []);
+  const projects = await getJson(KEYS.PROJECTS, []);
 
   const sortedEntries = [...entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)).slice(0, 500);
 
-  return { members, entries: sortedEntries, requests, notices, schedule };
+  return { members, entries: sortedEntries, requests, notices, schedule, projects };
 }
 
 async function api_saveEntry(payload) {
@@ -204,6 +206,43 @@ async function api_saveSchedule(date, text, author) {
   return null;
 }
 
+// Team-wide project/event periods (pop-up stores, flea markets, etc.) shown
+// as a highlighted band across their date range on the monthly calendar.
+// Unlike the per-date schedule note above, this spans multiple days.
+async function api_saveProject(payload) {
+  const projects = await getJson(KEYS.PROJECTS, []);
+  const title = ((payload && payload.title) || "").trim();
+  let startDate = payload && payload.startDate;
+  let endDate = payload && payload.endDate;
+  if (!title || !startDate || !endDate) return null;
+  if (startDate > endDate) {
+    const t = startDate; startDate = endDate; endDate = t;
+  }
+  const ts = nowIso();
+  const id = (payload && payload.id) || ("proj_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8));
+  const obj = {
+    id,
+    title,
+    startDate,
+    endDate,
+    color: (payload && payload.color) || "yellow",
+    author: (payload && payload.author) || "",
+    createdAt: ts,
+  };
+  const idx = projects.findIndex((p) => p.id === id);
+  if (idx >= 0) projects[idx] = obj;
+  else projects.push(obj);
+  await setJson(KEYS.PROJECTS, projects);
+  return obj;
+}
+
+async function api_deleteProject(id) {
+  const projects = await getJson(KEYS.PROJECTS, []);
+  const next = projects.filter((p) => p.id !== id);
+  await setJson(KEYS.PROJECTS, next);
+  return { removed: projects.length - next.length };
+}
+
 const HANDLERS = {
   api_getAll,
   api_saveEntry,
@@ -213,6 +252,8 @@ const HANDLERS = {
   api_cancelRequest,
   api_saveNotice,
   api_saveSchedule,
+  api_saveProject,
+  api_deleteProject,
 };
 
 module.exports = async (req, res) => {
