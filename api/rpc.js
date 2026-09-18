@@ -179,6 +179,9 @@ async function api_cancelRequest(requestId) {
   return { id: requestId, cancelled: true };
 }
 
+// Legacy: a whole week's notice used to be one free-text blob. Kept only so
+// weeks saved before the item-based redesign below still round-trip; no
+// longer called by the frontend.
 async function api_saveNotice(weekStart, author, text) {
   const notices = await getJson(KEYS.NOTICES, []);
   const ts = nowIso();
@@ -188,6 +191,80 @@ async function api_saveNotice(weekStart, author, text) {
   else notices.push(obj);
   await setJson(KEYS.NOTICES, notices);
   return obj;
+}
+
+// Weekly notices, redesigned as a list of short individual items (each with
+// its own 진행중/완료 status) instead of one long free-text block — easier
+// to scan, and lets the team leader mark individual items done as they get
+// resolved during the week without losing the ones still open.
+function findOrCreateNoticeRow(notices, weekStart) {
+  let row = notices.find((n) => n.weekStart === weekStart);
+  if (!row) {
+    row = { id: weekStart, weekStart, items: [] };
+    notices.push(row);
+  }
+  if (!Array.isArray(row.items)) row.items = [];
+  return row;
+}
+
+async function api_addNoticeItem(weekStart, author, text) {
+  const cleanText = (text || "").trim();
+  if (!weekStart || !cleanText) return null;
+  const notices = await getJson(KEYS.NOTICES, []);
+  const row = findOrCreateNoticeRow(notices, weekStart);
+  const ts = nowIso();
+  const item = {
+    id: "notice_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    text: cleanText,
+    status: "progress",
+    author: author || "",
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  row.items.push(item);
+  row.author = author || row.author;
+  row.updatedAt = ts;
+  await setJson(KEYS.NOTICES, notices);
+  return { weekStart, item };
+}
+
+async function api_updateNoticeItemText(weekStart, itemId, text) {
+  const notices = await getJson(KEYS.NOTICES, []);
+  const row = notices.find((n) => n.weekStart === weekStart);
+  if (!row || !Array.isArray(row.items)) return null;
+  const item = row.items.find((i) => i.id === itemId);
+  if (!item) return null;
+  const cleanText = (text || "").trim();
+  if (!cleanText) return null;
+  item.text = cleanText;
+  item.updatedAt = nowIso();
+  row.updatedAt = item.updatedAt;
+  await setJson(KEYS.NOTICES, notices);
+  return { weekStart, item };
+}
+
+async function api_setNoticeItemStatus(weekStart, itemId, status) {
+  const notices = await getJson(KEYS.NOTICES, []);
+  const row = notices.find((n) => n.weekStart === weekStart);
+  if (!row || !Array.isArray(row.items)) return null;
+  const item = row.items.find((i) => i.id === itemId);
+  if (!item) return null;
+  item.status = status === "done" ? "done" : "progress";
+  item.updatedAt = nowIso();
+  row.updatedAt = item.updatedAt;
+  await setJson(KEYS.NOTICES, notices);
+  return { weekStart, item };
+}
+
+async function api_deleteNoticeItem(weekStart, itemId) {
+  const notices = await getJson(KEYS.NOTICES, []);
+  const row = notices.find((n) => n.weekStart === weekStart);
+  if (!row || !Array.isArray(row.items)) return { removed: 0 };
+  const before = row.items.length;
+  row.items = row.items.filter((i) => i.id !== itemId);
+  row.updatedAt = nowIso();
+  await setJson(KEYS.NOTICES, notices);
+  return { removed: before - row.items.length };
 }
 
 async function api_saveSchedule(date, text, author) {
@@ -280,6 +357,10 @@ const HANDLERS = {
   api_acknowledgeRequest,
   api_cancelRequest,
   api_saveNotice,
+  api_addNoticeItem,
+  api_updateNoticeItemText,
+  api_setNoticeItemStatus,
+  api_deleteNoticeItem,
   api_saveSchedule,
   api_saveProject,
   api_deleteProject,
