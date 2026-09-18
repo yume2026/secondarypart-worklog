@@ -922,6 +922,29 @@
   .week-col .bar .seg.progress{ background:var(--st-progress); }
   .week-col .bar .seg.hold{ background:var(--st-hold); }
   .week-col .lbl{ font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
+  .week-chart-legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    margin:2px 0 12px;
+  }
+  .week-chart-legend .legend-item{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .week-chart-legend .legend-dot{
+    width:9px;
+    height:9px;
+    border-radius:3px;
+    display:inline-block;
+    flex:none;
+  }
+  .week-chart-legend .legend-dot.done{ background:var(--st-done); }
+  .week-chart-legend .legend-dot.progress{ background:var(--st-progress); }
+  .week-chart-legend .legend-dot.hold{ background:var(--st-hold); }
 
   /* ---------- weekly review (Monday meeting grid) ---------- */
   .review-table-wrap{
@@ -1492,6 +1515,11 @@
 
       <div class="week-report">
         <h3 class="week-report-title">이번 주 리포트<span id="weekReportRange"></span></h3>
+        <div class="week-chart-legend">
+          <span class="legend-item"><span class="legend-dot done"></span>완료</span>
+          <span class="legend-item"><span class="legend-dot progress"></span>진행중</span>
+          <span class="legend-item"><span class="legend-dot hold"></span>보류</span>
+        </div>
         <div class="week-chart" id="weekChart"></div>
       </div>
 
@@ -2588,7 +2616,7 @@
       const total = d.done + d.progress + d.hold;
       const heightPct = total ? Math.max(6, Math.round((total / maxTotal) * 100)) : 3;
       const segHtml = ["done", "progress", "hold"].filter(k=>d[k] > 0)
-        .map(k=>`<span class="seg ${k}" style="flex:${d[k]} 0 0"></span>`).join("");
+        .map(k=>`<span class="seg ${k}" style="flex:${d[k]} 0 0" title="${STATUS_LABEL[k]} ${d[k]}건"></span>`).join("");
       const dObj = fromDateStr(d.date);
       return `<div class="week-col">
         <span class="total">${total || ""}</span>
