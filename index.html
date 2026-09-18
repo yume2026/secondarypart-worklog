@@ -1505,9 +1505,14 @@
     return `${mon.getMonth()+1}.${pad(mon.getDate())} ~ ${sun.getMonth()+1}.${pad(sun.getDate())} 주`;
   }
 
-  const now = new Date();
-  const todayStr = toDateStr(now);
-  document.getElementById("todayBig").textContent = formatDisplay(todayStr);
+  // `let`, not `const` — a dashboard tab left open across midnight (very
+  // plausible for a shared team screen) must not stay frozen on the day it
+  // happened to load. checkDateRollover() (near startPolling) refreshes
+  // this — and the views that were tracking "today"/"this week" — once the
+  // wall clock actually moves to a new day.
+  let todayStr = toDateStr(new Date());
+  const todayBigEl = document.getElementById("todayBig");
+  todayBigEl.textContent = formatDisplay(todayStr);
   document.getElementById("todaySmall").textContent = "오늘";
 
   // ---------- backend RPC bridge (Vercel API route) ----------
@@ -1552,7 +1557,7 @@
   };
   const PROJECT_COLOR_KEYS = Object.keys(PROJECT_COLORS);
 
-  const currentWeekKey = getMondayStr(todayStr);
+  let currentWeekKey = getMondayStr(todayStr);
   let noticeEditingOpen = false;
   let latestNoticeText = "";
 
@@ -2393,6 +2398,7 @@
 
   // ---------- team-wide search + weekly report ----------
   function renderWeekReport(){
+    weekReportRangeEl.textContent = " (" + formatWeekRange(currentWeekKey).replace(/\s*주$/, "") + ")";
     const days = [0, 1, 2, 3, 4].map(i=>addDays(currentWeekKey, i));
     const perDay = days.map(d=>({ date: d, done: 0, progress: 0, hold: 0 }));
     allEntriesCache.forEach(e=>{
@@ -2561,7 +2567,7 @@
   const teamSearchInput = document.getElementById("teamSearchInput");
   const searchResultsEl = document.getElementById("searchResults");
   const weekChartEl = document.getElementById("weekChart");
-  document.getElementById("weekReportRange").textContent = " (" + formatWeekRange(currentWeekKey).replace(/\s*주$/, "") + ")";
+  const weekReportRangeEl = document.getElementById("weekReportRange");
   teamSearchInput.addEventListener("input", ()=>runSearch(teamSearchInput.value));
 
   // ---------- monthly calendar ----------
@@ -2878,8 +2884,6 @@
   const noticeToggleBtn = document.getElementById("noticeToggleBtn");
   const noticeMetaEl = document.getElementById("noticeMeta");
 
-  noticeRangeEl.textContent = formatWeekRange(currentWeekKey);
-
   function canEditNotice(){ return selectedMember === "m1"; }
 
   function openNoticeEdit(){
@@ -2922,6 +2926,7 @@
   });
 
   function renderNotice(){
+    noticeRangeEl.textContent = formatWeekRange(currentWeekKey);
     const data = noticesCache[currentWeekKey];
     if(data && data.text){
       latestNoticeText = data.text;
@@ -2972,9 +2977,43 @@
     loadHistory();
   }
 
+  // If the wall-clock date has moved on since we last computed "today" —
+  // this tab having simply been left open across midnight is the common
+  // case for a shared team dashboard — refresh today/this-week, and carry
+  // teamDate/calendarMonthKey/reviewWeekKey forward too, but only when they
+  // were still tracking the default (today / this month / last week) and
+  // nobody had manually browsed to a specific other date. A manual
+  // selection is left alone; the person can still click "오늘" to jump back.
+  function checkDateRollover(){
+    const freshToday = toDateStr(new Date());
+    if(freshToday === todayStr) return;
+
+    const oldToday = todayStr;
+    const oldCurrentWeekKey = currentWeekKey;
+    const wasTeamOnToday = (teamDate === oldToday);
+    const wasCalendarOnCurrentMonth = (calendarMonthKey === oldToday.slice(0, 7));
+    const wasReviewOnDefaultLastWeek = (reviewWeekKey === addDays(oldCurrentWeekKey, -7));
+
+    todayStr = freshToday;
+    currentWeekKey = getMondayStr(todayStr);
+    todayBigEl.textContent = formatDisplay(todayStr);
+
+    if(wasTeamOnToday){
+      teamDate = todayStr;
+      teamDateInput.value = teamDate;
+    }
+    if(wasCalendarOnCurrentMonth){
+      calendarMonthKey = todayStr.slice(0, 7);
+    }
+    if(wasReviewOnDefaultLastWeek && currentWeekKey !== oldCurrentWeekKey){
+      reviewWeekKey = addDays(currentWeekKey, -7);
+    }
+  }
+
   function startPolling(){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(()=>{
+      checkDateRollover();
       refreshAll().then(()=>renderAllViews({ skipWhileEditing: true })).catch(()=>{});
     }, POLL_INTERVAL_MS);
   }
