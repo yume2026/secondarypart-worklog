@@ -504,6 +504,76 @@
     border-radius:6px;
     white-space:nowrap;
   }
+  .task-routine-tag{
+    flex:none;
+    font-size:10px;
+    font-weight:700;
+    color:var(--st-progress);
+    background:var(--st-progress-bg);
+    padding:4px 7px;
+    border-radius:6px;
+    white-space:nowrap;
+  }
+  .routine-manage{ margin-top:10px; }
+  .routine-manage-toggle{
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-size:11.5px;
+    font-weight:600;
+    cursor:pointer;
+    padding:2px 0;
+  }
+  .routine-manage-toggle:hover{ color:var(--accent-ink); }
+  .routine-manage-panel{
+    margin-top:8px;
+    padding:12px;
+    border:1px dashed var(--line);
+    border-radius:10px;
+    background:var(--surface-2);
+  }
+  .routine-chip-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:8px;
+  }
+  .routine-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border:1px solid var(--st-progress);
+    background:var(--st-progress-bg);
+    color:var(--st-progress);
+    border-radius:999px;
+    padding:4px 6px 4px 10px;
+    font-size:11.5px;
+    font-weight:600;
+  }
+  .routine-chip .del{
+    border:none;
+    background:none;
+    color:inherit;
+    opacity:.65;
+    cursor:pointer;
+    font-size:13px;
+    line-height:1;
+    padding:2px 4px;
+    border-radius:50%;
+  }
+  .routine-chip .del:hover{ opacity:1; }
+  .routine-add-row{ display:flex; gap:8px; }
+  #routineTitleInput{
+    flex:1;
+    min-width:0;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--surface);
+    padding:8px 10px;
+    font-size:13px;
+    color:var(--ink);
+  }
+  .routine-add-confirm{ padding:8px 14px; font-size:12.5px; }
   .task-hold-extra{
     display:flex;
     gap:8px;
@@ -1344,6 +1414,18 @@
         <label>오늘 업무 목록 (업무별 진행상태)</label>
         <div class="task-list" id="taskList"></div>
         <button type="button" class="task-add" id="taskAddBtn">+ 업무 추가</button>
+
+        <div class="routine-manage">
+          <button type="button" class="routine-manage-toggle" id="routineManageToggle">⚙ 매일 반복하는 루틴 업무 관리</button>
+          <div class="routine-manage-panel" id="routineManagePanel" hidden>
+            <div class="routine-chip-list" id="routineChipList"></div>
+            <div class="routine-add-row">
+              <input type="text" id="routineTitleInput" placeholder="예: 재고 확인" maxlength="40">
+              <button type="button" class="btn-ghost routine-add-confirm" id="routineAddConfirm">추가</button>
+            </div>
+            <p class="footnote">여기 등록한 업무는 매일 업무일지를 새로 열 때마다 '루틴' 표시와 함께 자동으로 목록에 추가됩니다. 밀린 업무(이월)와는 별개로 취급돼요.</p>
+          </div>
+        </div>
       </div>
 
       <div class="field">
@@ -1540,6 +1622,7 @@
   let noticesCache = {};         // weekStart -> {weekStart,author,text,updatedAt}
   let scheduleCache = {};        // date -> {date,text,author,updatedAt}
   let projectsCache = [];        // array of {id,title,startDate,endDate,color,author,createdAt} — team-wide project/event periods (팝업, 플리마켓 등), highlighted on the monthly calendar
+  let routinesCache = [];        // array of {id,memberId,text,createdAt} — each member's own recurring daily tasks
   let openRequestsByTarget = {};
   let sentRequestsCache = [];
 
@@ -1639,6 +1722,7 @@
         updateNoticeEditAffordance();
         renderInbox();
         renderSentRequests();
+        renderRoutineChips();
         scheduleEditingDate = null;
         renderCalendar();
       });
@@ -1710,6 +1794,67 @@
     toastHideTimer = setTimeout(()=>{ toastEl.classList.remove("show"); }, 2600);
   }
 
+  // ---------- personal routine tasks (each member manages their own) ----------
+  const routineManageToggleEl = document.getElementById("routineManageToggle");
+  const routineManagePanelEl = document.getElementById("routineManagePanel");
+  const routineChipListEl = document.getElementById("routineChipList");
+  const routineTitleInputEl = document.getElementById("routineTitleInput");
+  const routineAddConfirmEl = document.getElementById("routineAddConfirm");
+
+  routineManageToggleEl.addEventListener("click", ()=>{
+    routineManagePanelEl.hidden = !routineManagePanelEl.hidden;
+    if(!routineManagePanelEl.hidden) routineTitleInputEl.focus();
+  });
+
+  function addRoutineFromInput(){
+    const text = routineTitleInputEl.value.trim();
+    if(!text) { routineTitleInputEl.focus(); return; }
+    if(!confirmIdentityForAction(selectedMember, "루틴 업무를 추가")) return;
+    routineAddConfirmEl.disabled = true;
+    gsRun("api_addRoutine", selectedMember, text).then(saved=>{
+      routineAddConfirmEl.disabled = false;
+      if(!saved) return;
+      routinesCache.push(saved);
+      routineTitleInputEl.value = "";
+      renderRoutineChips();
+      showToast("루틴 업무를 추가했습니다");
+    }).catch(()=>{ routineAddConfirmEl.disabled = false; });
+  }
+  routineAddConfirmEl.addEventListener("click", addRoutineFromInput);
+  routineTitleInputEl.addEventListener("keydown", (e)=>{ if(e.key === "Enter") addRoutineFromInput(); });
+
+  function renderRoutineChips(){
+    routineChipListEl.innerHTML = "";
+    const mine = routinesCache.filter(r=>r.memberId === selectedMember);
+    if(mine.length === 0){
+      routineChipListEl.innerHTML = '<div class="inbox-empty">등록된 루틴 업무가 없습니다.</div>';
+      return;
+    }
+    mine.forEach(r=>{
+      const chip = document.createElement("span");
+      chip.className = "routine-chip";
+      const label = document.createElement("span");
+      label.textContent = r.text;
+      chip.appendChild(label);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "del";
+      del.setAttribute("aria-label", "루틴 업무 삭제");
+      del.innerHTML = "&times;";
+      del.addEventListener("click", ()=>{
+        if(!confirmIdentityForAction(selectedMember, "루틴 업무를 삭제")) return;
+        if(!confirm('"' + r.text + '" 루틴을 삭제할까요? 내일부터 자동으로 채워지지 않습니다.')) return;
+        del.disabled = true;
+        gsRun("api_deleteRoutine", r.id).then(()=>{
+          routinesCache = routinesCache.filter(x=>x.id !== r.id);
+          renderRoutineChips();
+        }).catch(()=>{ del.disabled = false; });
+      });
+      chip.appendChild(del);
+      routineChipListEl.appendChild(chip);
+    });
+  }
+
   let taskRows = [{ text:"", status:"progress", holdReason:"", holdWho:"" }];
 
   function countTasks(tasks){
@@ -1745,6 +1890,12 @@
       const rowEl = document.createElement("div");
       rowEl.className = "task-row";
 
+      if(row.routine){
+        const rtag = document.createElement("span");
+        rtag.className = "task-routine-tag";
+        rtag.textContent = "루틴";
+        rowEl.appendChild(rtag);
+      }
       if(row.carried){
         const tag = document.createElement("span");
         tag.className = "task-carried-tag";
@@ -1857,7 +2008,7 @@
 
   function fillForm(data){
     const loaded = Array.isArray(data.tasks) ? data.tasks.filter(t=>t && typeof t.text === "string") : [];
-    taskRows = loaded.length ? loaded.map(t=>({ text:t.text, status:t.status || "progress", holdReason:t.holdReason || "", holdWho:t.holdWho || "" })) : [{ text:"", status:"progress", holdReason:"", holdWho:"" }];
+    taskRows = loaded.length ? loaded.map(t=>({ text:t.text, status:t.status || "progress", holdReason:t.holdReason || "", holdWho:t.holdWho || "", routine:!!t.routine })) : [{ text:"", status:"progress", holdReason:"", holdWho:"" }];
     renderTaskList();
     fIssues.value = data.issues || "";
     fPlan.value = data.tomorrowPlan || "";
@@ -1878,6 +2029,7 @@
         status: t.status || "progress",
         holdReason: (t.holdReason || "").trim(),
         holdWho: t.holdWho || "",
+        routine: !!t.routine,
       }))
       .filter(t=>t.text.length > 0);
     return JSON.stringify({
@@ -2156,29 +2308,49 @@
     });
   }
 
-  // carry yesterday's unfinished (진행중/보류) tasks into today's fresh, empty form
-  function tryRollover(forMember, forDate){
+  // Populates a fresh, empty day with two different kinds of pre-filled
+  // rows, kept deliberately distinct:
+  //  - 루틴(routine): this member's personal recurring tasks, always
+  //    inserted fresh regardless of yesterday's status — these are expected
+  //    every day by design, not "still not done from before".
+  //  - 이월(carried): genuinely unfinished (진행중/보류) tasks from the most
+  //    recent prior entry — actual leftover work. Routine-tagged tasks are
+  //    excluded from this so a routine item never gets double-counted as
+  //    both a fresh routine row AND a carried-over leftover row.
+  function buildFreshDayTasks(forMember, forDate){
     if(forDate !== todayStr) return;
     if(!(taskRows.length === 1 && !taskRows[0].text)) return;
+
+    const routineRows = routinesCache
+      .filter(r=>r.memberId === forMember)
+      .map(r=>({ text:r.text, status:"progress", holdReason:"", holdWho:"", routine:true }));
+
     const prevEntries = allEntriesCache
       .filter(e=>e.memberId === forMember && e.date < forDate)
       .sort((a,b)=>b.date.localeCompare(a.date));
-    if(prevEntries.length === 0) return;
-    const prevData = prevEntries[0];
-    const leftover = (prevData.tasks || []).filter(t=>t && (t.status === "progress" || t.status === "hold"));
-    if(leftover.length === 0) return;
+    let carriedRows = [];
+    if(prevEntries.length > 0){
+      const leftover = (prevEntries[0].tasks || []).filter(t=>t && !t.routine && (t.status === "progress" || t.status === "hold"));
+      carriedRows = leftover.map(t=>({
+        text: t.text,
+        status: t.status,
+        holdReason: t.holdReason || "",
+        holdWho: t.holdWho || "",
+        carried: true,
+      }));
+    }
+
+    const combined = routineRows.concat(carriedRows);
+    if(combined.length === 0) return;
     // bail out if the user has since switched member/date
     if(selectedMember !== forMember || entryDate !== forDate) return;
 
-    taskRows = leftover.map(t=>({
-      text: t.text,
-      status: t.status,
-      holdReason: t.holdReason || "",
-      holdWho: t.holdWho || "",
-      carried: true,
-    }));
+    taskRows = combined;
     renderTaskList();
-    entryMeta.textContent = "어제 마무리되지 않은 업무 " + leftover.length + "건을 이월했습니다";
+    const parts = [];
+    if(routineRows.length) parts.push("루틴 업무 " + routineRows.length + "건");
+    if(carriedRows.length) parts.push("어제 마무리되지 않은 업무 " + carriedRows.length + "건");
+    entryMeta.textContent = parts.join(" · ") + "을 불러왔습니다";
   }
 
   function loadOwnEntry(){
@@ -2191,7 +2363,7 @@
     } else {
       clearForm();
       entryMeta.textContent = "아직 작성 전";
-      tryRollover(memberAtLoad, dateAtLoad);
+      buildFreshDayTasks(memberAtLoad, dateAtLoad);
     }
   }
 
@@ -2203,6 +2375,7 @@
         status: t.status || "progress",
         holdReason: (t.holdReason || "").trim(),
         holdWho: t.holdWho || "",
+        routine: !!t.routine,
       }))
       .filter(t=>t.text.length > 0);
 
@@ -2494,7 +2667,8 @@
         const taskText = tasks.map(t=>{
           const label = STATUS_LABEL[t.status || "progress"] || t.status;
           const holdPart = (t.status === "hold" && t.holdReason) ? (" - 사유: " + t.holdReason) : "";
-          return `[${label}] ${t.text || ""}${holdPart}`;
+          const routinePart = t.routine ? " (루틴)" : "";
+          return `[${label}] ${t.text || ""}${holdPart}${routinePart}`;
         }).join("\n");
         const reqs = requestsForEntry(id, d);
         const reqText = reqs.map(r=>{
@@ -2958,6 +3132,7 @@
       scheduleCache = {};
       (data.schedule || []).forEach(s=>{ if(s && s.date) scheduleCache[s.date] = s; });
       projectsCache = data.projects || [];
+      routinesCache = data.routines || [];
       rebuildRequestViews();
     });
   }
@@ -2971,6 +3146,7 @@
     renderWeeklyReview();
     runSearch(teamSearchInput.value);
     renderProjectChips();
+    renderRoutineChips();
     renderCalendar();
     renderNotice();
     renderIdentityBanner();
