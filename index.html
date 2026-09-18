@@ -922,29 +922,34 @@
   .week-col .bar .seg.progress{ background:var(--st-progress); }
   .week-col .bar .seg.hold{ background:var(--st-hold); }
   .week-col .lbl{ font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
-  .week-chart-legend{
+  .status-legend{
     display:flex;
     flex-wrap:wrap;
     gap:14px;
     margin:2px 0 12px;
   }
-  .week-chart-legend .legend-item{
+  .status-legend.compact{
+    gap:10px;
+    margin:0 0 8px;
+  }
+  .status-legend .legend-item{
     display:flex;
     align-items:center;
     gap:5px;
     font-size:12px;
     color:var(--muted);
   }
-  .week-chart-legend .legend-dot{
+  .status-legend.compact .legend-item{ font-size:11px; }
+  .status-legend .legend-dot{
     width:9px;
     height:9px;
     border-radius:3px;
     display:inline-block;
     flex:none;
   }
-  .week-chart-legend .legend-dot.done{ background:var(--st-done); }
-  .week-chart-legend .legend-dot.progress{ background:var(--st-progress); }
-  .week-chart-legend .legend-dot.hold{ background:var(--st-hold); }
+  .status-legend .legend-dot.done{ background:var(--st-done); }
+  .status-legend .legend-dot.progress{ background:var(--st-progress); }
+  .status-legend .legend-dot.hold{ background:var(--st-hold); }
 
   /* ---------- weekly review (Monday meeting grid) ---------- */
   .review-table-wrap{
@@ -1476,6 +1481,11 @@
 
       <div class="history">
         <h3>지난 기록</h3>
+        <div class="status-legend compact">
+          <span class="legend-item"><span class="legend-dot done"></span>완료</span>
+          <span class="legend-item"><span class="legend-dot progress"></span>진행중</span>
+          <span class="legend-item"><span class="legend-dot hold"></span>보류</span>
+        </div>
         <div id="historyList"></div>
       </div>
     </section>
@@ -1515,7 +1525,7 @@
 
       <div class="week-report">
         <h3 class="week-report-title">이번 주 리포트<span id="weekReportRange"></span></h3>
-        <div class="week-chart-legend">
+        <div class="status-legend">
           <span class="legend-item"><span class="legend-dot done"></span>완료</span>
           <span class="legend-item"><span class="legend-dot progress"></span>진행중</span>
           <span class="legend-item"><span class="legend-dot hold"></span>보류</span>
@@ -1898,7 +1908,7 @@
   function stackBarHtml(c){
     if(!c.total) return '<div class="stack-bar"></div>';
     const order = ["done","progress","hold"];
-    const segs = order.filter(k=>c[k] > 0).map(k=>`<span class="seg ${k}" style="flex:${c[k]} 0 0"></span>`).join("");
+    const segs = order.filter(k=>c[k] > 0).map(k=>`<span class="seg ${k}" style="flex:${c[k]} 0 0" title="${STATUS_LABEL[k]} ${c[k]}건"></span>`).join("");
     return `<div class="stack-bar">${segs}</div>`;
   }
 
