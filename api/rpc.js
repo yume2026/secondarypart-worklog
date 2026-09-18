@@ -13,6 +13,7 @@ const KEYS = {
   NOTICES: PFX + "notices",
   SCHEDULE: PFX + "schedule",
   PROJECTS: PFX + "projects",
+  ROUTINES: PFX + "routines",
 };
 
 const DEFAULT_MEMBERS = { m1: "임유미", m2: "양선영", m3: "이한나", m4: "조윤서" };
@@ -53,10 +54,11 @@ async function api_getAll() {
   const notices = await getJson(KEYS.NOTICES, []);
   const schedule = await getJson(KEYS.SCHEDULE, []);
   const projects = await getJson(KEYS.PROJECTS, []);
+  const routines = await getJson(KEYS.ROUTINES, []);
 
   const sortedEntries = [...entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)).slice(0, 500);
 
-  return { members, entries: sortedEntries, requests, notices, schedule, projects };
+  return { members, entries: sortedEntries, requests, notices, schedule, projects, routines };
 }
 
 async function api_saveEntry(payload) {
@@ -243,6 +245,33 @@ async function api_deleteProject(id) {
   return { removed: projects.length - next.length };
 }
 
+// Personal recurring "routine" tasks (e.g. "재고 확인") — each member manages
+// their own list. Distinct from the day-to-day 이월 (rollover-of-unfinished-
+// work) mechanism: a routine task is expected every single day regardless of
+// yesterday's status, not "still not done from before", so it's tracked
+// separately and never accumulates a rollover streak on its own.
+async function api_addRoutine(memberId, text) {
+  const routines = await getJson(KEYS.ROUTINES, []);
+  const cleanText = (text || "").trim();
+  if (!memberId || !cleanText) return null;
+  const obj = {
+    id: "rtn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    memberId,
+    text: cleanText,
+    createdAt: nowIso(),
+  };
+  routines.push(obj);
+  await setJson(KEYS.ROUTINES, routines);
+  return obj;
+}
+
+async function api_deleteRoutine(id) {
+  const routines = await getJson(KEYS.ROUTINES, []);
+  const next = routines.filter((r) => r.id !== id);
+  await setJson(KEYS.ROUTINES, next);
+  return { removed: routines.length - next.length };
+}
+
 const HANDLERS = {
   api_getAll,
   api_saveEntry,
@@ -254,6 +283,8 @@ const HANDLERS = {
   api_saveSchedule,
   api_saveProject,
   api_deleteProject,
+  api_addRoutine,
+  api_deleteRoutine,
 };
 
 module.exports = async (req, res) => {
