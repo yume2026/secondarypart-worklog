@@ -1311,22 +1311,100 @@
     font-weight:600;
     white-space:nowrap;
   }
-  .notice-body{ font-size:14.5px; line-height:1.65; }
+  .notice-body{ font-size:14.5px; line-height:1.5; }
   .notice-empty{ margin:0; color:var(--faint); }
-  .notice-text{ margin:0; color:var(--ink); }
-  .notice-edit:not([hidden]){ margin-top:10px; display:flex; flex-direction:column; gap:8px; }
-  .notice-edit textarea{
+  .notice-item-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .notice-item{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:8px 10px;
+  }
+  .notice-item-status-dot{
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    flex:none;
+  }
+  .notice-item-status-dot.progress{ background:var(--st-progress); }
+  .notice-item-status-dot.done{ background:var(--st-done); }
+  .notice-item-text{
+    flex:1;
+    min-width:0;
+    color:var(--ink);
+    overflow-wrap:anywhere;
+  }
+  .notice-item.done .notice-item-text{ color:var(--faint); text-decoration:line-through; }
+  .notice-item-badge{
+    font-size:11px;
+    font-weight:700;
+    padding:2px 8px;
+    border-radius:99px;
+    flex:none;
+    white-space:nowrap;
+  }
+  .notice-item-badge.progress{ color:var(--st-progress); background:var(--st-progress-bg); }
+  .notice-item-badge.done{ color:var(--st-done); background:var(--st-done-bg); }
+  .notice-item-actions{ display:flex; align-items:center; gap:4px; flex:none; }
+  .notice-item-actions button{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--muted);
+    border-radius:6px;
+    padding:4px 8px;
+    font-size:11.5px;
+    font-weight:600;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .notice-item-actions button:hover{ border-color:var(--accent); color:var(--accent); }
+  .notice-item-actions .notice-item-del:hover{ border-color:var(--st-hold); color:var(--st-hold); }
+  .notice-item-edit-input{
+    flex:1;
+    min-width:0;
+    border:1px solid var(--accent);
+    border-radius:6px;
+    padding:5px 8px;
+    background:var(--surface);
+    font-size:14.5px;
+  }
+  .notice-done-toggle{
+    align-self:flex-start;
+    margin-top:6px;
+    background:transparent;
+    border:none;
+    color:var(--muted);
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    padding:2px 0;
+    text-decoration:underline;
+  }
+  .notice-done-toggle:hover{ color:var(--accent); }
+  .notice-item-list.done{ margin-top:6px; }
+  .notice-item-list.done .notice-item{ opacity:.72; }
+  .notice-add:not([hidden]){
+    margin-top:10px;
+    display:flex;
+    gap:8px;
+  }
+  .notice-add input{
+    flex:1;
+    min-width:0;
     border:1px solid var(--line);
     border-radius:8px;
     background:var(--surface);
-    padding:10px 12px;
-    min-height:84px;
-    width:100%;
-    resize:vertical;
-    line-height:1.55;
+    padding:9px 12px;
+    font-size:14px;
   }
-  .notice-edit textarea:focus{ border-color:var(--accent); }
-  .notice-edit-actions{ display:flex; gap:8px; }
+  .notice-add input:focus{ border-color:var(--accent); }
   .btn-ghost{
     background:transparent;
     border:1px solid var(--line);
@@ -1375,16 +1453,15 @@
     </div>
     <div class="notice-body" id="noticeBody">
       <p class="notice-empty" id="noticeEmpty">아직 이번 주 공지가 없습니다.</p>
-      <p class="notice-text" id="noticeText" hidden></p>
+      <div class="notice-item-list" id="noticeItemList"></div>
+      <button class="notice-done-toggle" id="noticeDoneToggle" type="button" hidden></button>
+      <div class="notice-item-list done" id="noticeDoneList" hidden></div>
     </div>
-    <div class="notice-edit" id="noticeEdit" hidden>
-      <textarea id="noticeInput" placeholder="이번 주 팀 전체에 공지할 중요 사항을 적어주세요"></textarea>
-      <div class="notice-edit-actions">
-        <button class="btn-save" id="noticeSave">공지 저장</button>
-        <button class="btn-ghost" id="noticeCancel">취소</button>
-      </div>
+    <div class="notice-add" id="noticeAdd" hidden>
+      <input type="text" id="noticeItemInput" maxlength="200" placeholder="새 공지 항목 (예: 회의실 예약 방식 변경)">
+      <button class="btn-save" id="noticeAddConfirm">추가</button>
     </div>
-    <button class="notice-toggle" id="noticeToggleBtn" type="button" hidden>공지 작성 / 수정</button>
+    <button class="notice-toggle" id="noticeToggleBtn" type="button" hidden>+ 공지 항목 추가</button>
     <p class="notice-meta" id="noticeMeta"></p>
   </section>
 
@@ -1657,7 +1734,7 @@
 
   let allEntriesCache = [];      // array of {memberId,date,tasks,issues,tomorrowPlan,request,requestTo,updatedAt}
   let requestsCache = [];        // array of {id,from,to,text,date,createdAt,done}
-  let noticesCache = {};         // weekStart -> {weekStart,author,text,updatedAt}
+  let noticesCache = {};         // weekStart -> {weekStart,author,updatedAt,items:[{id,text,status,author,createdAt,updatedAt}]} (older weeks may only have a legacy `text` field, handled in renderNotice)
   let scheduleCache = {};        // date -> {date,text,author,updatedAt}
   let projectsCache = [];        // array of {id,title,startDate,endDate,color,author,createdAt} — team-wide project/event periods (팝업, 플리마켓 등), highlighted on the monthly calendar
   let routinesCache = [];        // array of {id,memberId,text,createdAt} — each member's own recurring daily tasks
@@ -1679,8 +1756,9 @@
   const PROJECT_COLOR_KEYS = Object.keys(PROJECT_COLORS);
 
   let currentWeekKey = getMondayStr(todayStr);
-  let noticeEditingOpen = false;
-  let latestNoticeText = "";
+  let noticeAddOpen = false;           // "+ 공지 항목 추가" input row open
+  let noticeEditingItemId = null;      // id of the notice item currently being inline-edited
+  let noticeDoneExpanded = false;      // whether the collapsed "완료된 항목" list is shown
 
   // Weekly review (Monday meeting grid) defaults to LAST week — the week
   // that just ended — since that's what a Monday retrospective needs to
@@ -1752,12 +1830,15 @@
         selectedMember = id;
         localStorage.setItem("worklog_member", id);
         inboxExpandedRequestId = null;
+        noticeEditingItemId = null;
+        if(noticeAddOpen) closeNoticeAdd();
         rebuildRequestViews();
         renderPills();
         renderRequestToOptions();
         loadOwnEntry();
         loadHistory();
         updateNoticeEditAffordance();
+        renderNotice();
         renderInbox();
         renderSentRequests();
         renderRoutineChips();
@@ -3086,76 +3167,216 @@
   }
 
   // ---------- weekly notice (m1 = 최고책임자, 매주 월요일 기준 주 단위 공지) ----------
+  // Redesigned from one long free-text block into a list of short items,
+  // each with its own 진행중/완료 status — easier to scan, and lets 최고
+  // 책임자 mark individual items done as they get resolved during the week
+  // instead of having to rewrite the whole notice text.
   const noticeRangeEl = document.getElementById("noticeRange");
   const noticeAuthorEl = document.getElementById("noticeAuthor");
   const noticeEmptyEl = document.getElementById("noticeEmpty");
-  const noticeTextEl = document.getElementById("noticeText");
-  const noticeBodyEl = document.getElementById("noticeBody");
-  const noticeEditEl = document.getElementById("noticeEdit");
-  const noticeInputEl = document.getElementById("noticeInput");
+  const noticeItemListEl = document.getElementById("noticeItemList");
+  const noticeDoneToggleEl = document.getElementById("noticeDoneToggle");
+  const noticeDoneListEl = document.getElementById("noticeDoneList");
+  const noticeAddEl = document.getElementById("noticeAdd");
+  const noticeItemInputEl = document.getElementById("noticeItemInput");
+  const noticeAddConfirmEl = document.getElementById("noticeAddConfirm");
   const noticeToggleBtn = document.getElementById("noticeToggleBtn");
   const noticeMetaEl = document.getElementById("noticeMeta");
 
   function canEditNotice(){ return selectedMember === "m1"; }
+  function noticeAuthorName(){ return memberNames.m1 || "임유미"; }
 
-  function openNoticeEdit(){
-    noticeEditingOpen = true;
-    noticeInputEl.value = latestNoticeText;
-    noticeBodyEl.hidden = true;
-    noticeEditEl.hidden = false;
-    noticeToggleBtn.hidden = true;
-    noticeInputEl.focus();
+  function currentNoticeItems(){
+    const data = noticesCache[currentWeekKey];
+    if(!data) return [];
+    if(Array.isArray(data.items) && data.items.length) return data.items;
+    // Legacy weeks saved before this redesign only have a single `text`
+    // blob — show it as one read-only item so old notices don't just
+    // disappear. It has no real id, so it's skipped by the edit/status/
+    // delete handlers (they all require a matching item id).
+    if(data.text) return [{ id:"", text:data.text, status:"progress", legacy:true }];
+    return [];
   }
-  function closeNoticeEdit(){
-    noticeEditingOpen = false;
-    noticeBodyEl.hidden = false;
-    noticeEditEl.hidden = true;
+
+  function openNoticeAdd(){
+    noticeAddOpen = true;
+    noticeAddEl.hidden = false;
+    noticeToggleBtn.hidden = true;
+    noticeItemInputEl.value = "";
+    noticeItemInputEl.focus();
+  }
+  function closeNoticeAdd(){
+    noticeAddOpen = false;
+    noticeAddEl.hidden = true;
     noticeToggleBtn.hidden = !canEditNotice();
   }
   function updateNoticeEditAffordance(){
     if(!canEditNotice()){
       noticeToggleBtn.hidden = true;
-      if(noticeEditingOpen) closeNoticeEdit();
+      if(noticeAddOpen) closeNoticeAdd();
     } else {
-      noticeToggleBtn.hidden = noticeEditingOpen;
+      noticeToggleBtn.hidden = noticeAddOpen;
     }
   }
 
-  noticeToggleBtn.addEventListener("click", openNoticeEdit);
-  document.getElementById("noticeCancel").addEventListener("click", closeNoticeEdit);
-  document.getElementById("noticeSave").addEventListener("click", ()=>{
-    if(!confirmIdentityForAction("m1", "공지를 저장")) return;
-    const text = noticeInputEl.value.trim();
-    const author = memberNames.m1 || "임유미";
-    noticeMetaEl.textContent = "저장 중…";
-    gsRun("api_saveNotice", currentWeekKey, author, text).then((saved)=>{
-      noticesCache[currentWeekKey] = saved;
+  noticeToggleBtn.addEventListener("click", openNoticeAdd);
+
+  function addNoticeItemFromInput(){
+    const text = noticeItemInputEl.value.trim();
+    if(!text){ noticeItemInputEl.focus(); return; }
+    if(!confirmIdentityForAction("m1", "공지 항목을 추가")) return;
+    const author = noticeAuthorName();
+    noticeAddConfirmEl.disabled = true;
+    gsRun("api_addNoticeItem", currentWeekKey, author, text).then((res)=>{
+      noticeAddConfirmEl.disabled = false;
+      if(!res) return;
+      const row = noticesCache[currentWeekKey] || { weekStart: currentWeekKey, items: [] };
+      if(!Array.isArray(row.items)) row.items = [];
+      row.items.push(res.item);
+      row.author = author;
+      noticesCache[currentWeekKey] = row;
+      closeNoticeAdd();
       renderNotice();
-      closeNoticeEdit();
-    }).catch(()=>{
-      noticeMetaEl.textContent = "저장 실패 — 다시 시도해주세요";
-    });
+      showToast("공지 항목을 추가했습니다");
+    }).catch(()=>{ noticeAddConfirmEl.disabled = false; });
+  }
+  noticeAddConfirmEl.addEventListener("click", addNoticeItemFromInput);
+  noticeItemInputEl.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter"){ e.preventDefault(); addNoticeItemFromInput(); }
+    if(e.key === "Escape") closeNoticeAdd();
   });
 
-  function renderNotice(){
-    noticeRangeEl.textContent = formatWeekRange(currentWeekKey);
-    const data = noticesCache[currentWeekKey];
-    if(data && data.text){
-      latestNoticeText = data.text;
-      noticeEmptyEl.hidden = true;
-      noticeTextEl.hidden = false;
-      noticeTextEl.innerHTML = escapeHtml(data.text).replace(/\n/g, "<br>");
-      noticeAuthorEl.textContent = "작성: " + (data.author || memberNames.m1 || "임유미");
-      noticeMetaEl.textContent = data.updatedAt ? ("최종 수정 " + new Date(data.updatedAt).toLocaleString("ko-KR")) : "";
-    } else {
-      latestNoticeText = "";
-      noticeEmptyEl.hidden = false;
-      noticeTextEl.hidden = true;
-      noticeAuthorEl.textContent = "작성 예정: " + (memberNames.m1 || "임유미") + " · 최고책임자";
-      noticeMetaEl.textContent = "";
+  function toggleNoticeItemStatus(item){
+    if(!item.id || !confirmIdentityForAction("m1", "공지 항목 상태를 변경")) return;
+    const next = item.status === "done" ? "progress" : "done";
+    gsRun("api_setNoticeItemStatus", currentWeekKey, item.id, next).then((res)=>{
+      if(!res) return;
+      item.status = res.item.status;
+      renderNotice();
+    });
+  }
+
+  function startEditNoticeItem(item){
+    if(!item.id) return;
+    noticeEditingItemId = item.id;
+    renderNotice();
+  }
+
+  function saveNoticeItemEdit(item, newText){
+    const text = (newText || "").trim();
+    if(!text){ return; }
+    gsRun("api_updateNoticeItemText", currentWeekKey, item.id, text).then((res)=>{
+      if(!res) return;
+      item.text = res.item.text;
+      noticeEditingItemId = null;
+      renderNotice();
+    });
+  }
+
+  function deleteNoticeItem(item){
+    if(!item.id || !confirmIdentityForAction("m1", "공지 항목을 삭제")) return;
+    if(!confirm('"' + item.text + '" 항목을 삭제할까요?')) return;
+    gsRun("api_deleteNoticeItem", currentWeekKey, item.id).then(()=>{
+      const row = noticesCache[currentWeekKey];
+      if(row && Array.isArray(row.items)) row.items = row.items.filter(i=>i.id !== item.id);
+      renderNotice();
+    });
+  }
+
+  function noticeItemRowHtml(item){
+    if(noticeEditingItemId === item.id && item.id){
+      return `<div class="notice-item" data-id="${item.id}">
+        <span class="notice-item-status-dot ${item.status}"></span>
+        <input type="text" class="notice-item-edit-input" id="noticeItemEditInput" value="${escapeHtml(item.text)}" maxlength="200">
+        <div class="notice-item-actions">
+          <button type="button" class="notice-item-edit-save">저장</button>
+          <button type="button" class="notice-item-edit-cancel">취소</button>
+        </div>
+      </div>`;
     }
-    if(!noticeEditingOpen && document.activeElement !== noticeInputEl){
-      noticeInputEl.value = latestNoticeText;
+    const canEdit = canEditNotice() && !item.legacy;
+    const badge = `<span class="notice-item-badge ${item.status}">${STATUS_LABEL[item.status] || "진행중"}</span>`;
+    const actions = canEdit ? `<div class="notice-item-actions">
+        <button type="button" class="notice-item-status-btn">${item.status === "done" ? "진행중으로" : "완료로"}</button>
+        <button type="button" class="notice-item-edit-btn">수정</button>
+        <button type="button" class="notice-item-del">삭제</button>
+      </div>` : "";
+    return `<div class="notice-item ${item.status}" data-id="${item.id}">
+      <span class="notice-item-status-dot ${item.status}"></span>
+      <span class="notice-item-text">${escapeHtml(item.text)}</span>
+      ${badge}
+      ${actions}
+    </div>`;
+  }
+
+  function bindNoticeItemRow(rowEl, item){
+    if(noticeEditingItemId === item.id && item.id){
+      const input = rowEl.querySelector("#noticeItemEditInput");
+      rowEl.querySelector(".notice-item-edit-save").addEventListener("click", ()=>saveNoticeItemEdit(item, input.value));
+      rowEl.querySelector(".notice-item-edit-cancel").addEventListener("click", ()=>{ noticeEditingItemId = null; renderNotice(); });
+      input.addEventListener("keydown", (e)=>{
+        if(e.key === "Enter"){ e.preventDefault(); saveNoticeItemEdit(item, input.value); }
+        if(e.key === "Escape"){ noticeEditingItemId = null; renderNotice(); }
+      });
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      return;
+    }
+    const statusBtn = rowEl.querySelector(".notice-item-status-btn");
+    if(statusBtn) statusBtn.addEventListener("click", ()=>toggleNoticeItemStatus(item));
+    const editBtn = rowEl.querySelector(".notice-item-edit-btn");
+    if(editBtn) editBtn.addEventListener("click", ()=>startEditNoticeItem(item));
+    const delBtn = rowEl.querySelector(".notice-item-del");
+    if(delBtn) delBtn.addEventListener("click", ()=>deleteNoticeItem(item));
+  }
+
+  function renderNoticeItemList(container, items){
+    container.innerHTML = "";
+    items.forEach(item=>{
+      const wrap = document.createElement("div");
+      wrap.innerHTML = noticeItemRowHtml(item);
+      const rowEl = wrap.firstElementChild;
+      container.appendChild(rowEl);
+      bindNoticeItemRow(rowEl, item);
+    });
+  }
+
+  noticeDoneToggleEl.addEventListener("click", ()=>{
+    noticeDoneExpanded = !noticeDoneExpanded;
+    renderNotice();
+  });
+
+  function renderNotice(opts){
+    // Skip a poll-triggered re-render while someone (almost certainly 최고
+    // 책임자, the only one who can edit) is mid-way through adding or
+    // editing an item — same reasoning as the inbox done-comment box.
+    if(opts && opts.skipWhileEditing && (noticeEditingItemId || (noticeAddOpen && noticeItemInputEl.value))) return;
+
+    noticeRangeEl.textContent = formatWeekRange(currentWeekKey);
+    const items = currentNoticeItems();
+    const progressItems = items.filter(i=>i.status !== "done");
+    const doneItems = items.filter(i=>i.status === "done");
+    const data = noticesCache[currentWeekKey];
+
+    noticeEmptyEl.hidden = items.length > 0;
+    renderNoticeItemList(noticeItemListEl, progressItems);
+
+    if(doneItems.length){
+      noticeDoneToggleEl.hidden = false;
+      noticeDoneToggleEl.textContent = (noticeDoneExpanded ? "완료된 항목 숨기기 ▲" : `완료된 항목 ${doneItems.length}건 보기 ▼`);
+      noticeDoneListEl.hidden = !noticeDoneExpanded;
+      if(noticeDoneExpanded) renderNoticeItemList(noticeDoneListEl, doneItems);
+    } else {
+      noticeDoneToggleEl.hidden = true;
+      noticeDoneListEl.hidden = true;
+    }
+
+    if(items.length){
+      noticeAuthorEl.textContent = "작성: " + ((data && data.author) || noticeAuthorName());
+      noticeMetaEl.textContent = data && data.updatedAt ? ("최종 수정 " + new Date(data.updatedAt).toLocaleString("ko-KR")) : "";
+    } else {
+      noticeAuthorEl.textContent = "작성 예정: " + noticeAuthorName() + " · 최고책임자";
+      noticeMetaEl.textContent = "";
     }
   }
 
@@ -3186,7 +3407,7 @@
     renderProjectChips();
     renderRoutineChips();
     renderCalendar();
-    renderNotice();
+    renderNotice(opts);
     renderIdentityBanner();
     loadHistory();
   }
